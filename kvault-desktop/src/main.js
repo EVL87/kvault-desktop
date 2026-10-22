@@ -223,10 +223,6 @@ function formatPublicHardwareSlot(slot) {
   return {
     enabled: true,
     authMode: slot.authMode,
-    deviceLabel: slot.deviceLabel,
-    protocolHint: slot.protocolHint,
-    credentialIdPreview: `${String(slot.credentialIdB64 || '').slice(0, 18)}…`,
-    enrolledAt: slot.enrolledAt,
   };
 }
 

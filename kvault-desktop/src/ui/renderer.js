@@ -88,9 +88,7 @@
   const hardwareModal = document.getElementById('hardwareModal');
   const hardwareForm = document.getElementById('hardwareForm');
   const hwStatusBadge = document.getElementById('hwStatusBadge');
-  const hwStatusDetails = document.getElementById('hwStatusDetails');
   const hwAuthModeSelect = document.getElementById('hwAuthModeSelect');
-  const hwDeviceLabelInput = document.getElementById('hwDeviceLabelInput');
   const hwCurrentPwdInput = document.getElementById('hwCurrentPwdInput');
   const shortcutsModal = document.getElementById('shortcutsModal');
 
@@ -539,8 +537,6 @@
   async function refreshOpenHardwareSlotBanner(filePath) {
     const banner = document.getElementById('openHardwareBanner');
     const titleEl = document.getElementById('openHwBannerTitle');
-    const protoEl = document.getElementById('openHwBannerProto');
-    const descEl = document.getElementById('openHwBannerDesc');
     const btnHw = document.getElementById('btnOpenWithHardwareKey');
 
     if (!filePath) {
@@ -551,20 +547,19 @@
     const slotInfo = await api.inspectHardwareSlot(filePath);
     if (!slotInfo || !slotInfo.enabled) {
       banner.classList.add('hidden');
-      btnHw.disabled = true;
+      btnHw.classList.add('hidden');
       return;
     }
 
     banner.classList.remove('hidden');
-    protoEl.textContent = slotInfo.protocolHint || 'FIDO2 / U2F';
 
     if (slotInfo.authMode === 'hardware_passwordless') {
-      titleEl.textContent = 'MODO LLAVE FÍSICA (DESBLOQUEO 1-TOQUE)';
-      descEl.textContent = `Dispositivo: ${slotInfo.deviceLabel} | ID: ${slotInfo.credentialIdPreview} — Haga clic en "Desbloquear con Llave Física" o use su contraseña de respaldo.`;
+      titleEl.textContent = 'Llave Física';
+      btnHw.classList.remove('hidden');
       btnHw.disabled = false;
     } else if (slotInfo.authMode === 'hardware_2fa') {
-      titleEl.textContent = 'MODO DOBLE FACTOR ESTRICTO (CONTRASEÑA + LLAVE FÍSICA)';
-      descEl.textContent = `Dispositivo: ${slotInfo.deviceLabel} | ID: ${slotInfo.credentialIdPreview} — Ingrese su contraseña maestra y presione "Verificar AAD y Descifrar" para tocar su llave física.`;
+      titleEl.textContent = 'DFA (Pass + Key)';
+      btnHw.classList.add('hidden');
       btnHw.disabled = true;
     }
   }
@@ -813,15 +808,12 @@
     hwCurrentPwdInput.value = '';
     if (hw.enabled) {
       hwStatusBadge.className = 'badge badge-ok';
-      hwStatusBadge.textContent =
-        hw.authMode === 'hardware_2fa' ? 'Doble Factor 2FA Activo' : 'Passwordless 1-Toque Activo';
-      hwStatusDetails.textContent = `Dispositivo: ${hw.deviceLabel} | Protocolo: ${hw.protocolHint} | Credencial: ${hw.credentialIdPreview}`;
+      hwStatusBadge.textContent = hw.authMode === 'hardware_2fa' ? 'DFA (Pass + Key)' : 'Llave Física';
       hwAuthModeSelect.value = hw.authMode;
     } else {
       hwStatusBadge.className = 'badge';
-      hwStatusBadge.textContent = 'Solo Contraseña';
-      hwStatusDetails.textContent = 'Sin llave física vinculada. La bóveda se abre únicamente con Contraseña Maestra.';
-      hwAuthModeSelect.value = 'hardware_passwordless';
+      hwStatusBadge.textContent = 'Contraseña';
+      hwAuthModeSelect.value = 'hardware_2fa';
     }
     hardwareModal.classList.remove('hidden');
   }
@@ -840,12 +832,10 @@
     e.preventDefault();
     try {
       const authMode = hwAuthModeSelect.value;
-      const deviceLabel = hwDeviceLabelInput.value.trim();
       const currentMasterPassword = hwCurrentPwdInput.value;
-      showToast('Iniciando diálogo de Seguridad de Windows (Toque su llave física)...');
+      showToast('Esperando llave física...');
       const state = await api.configureHardwareKey({
         authMode,
-        deviceLabel,
         currentMasterPassword,
       });
       hwCurrentPwdInput.value = '';
@@ -853,11 +843,13 @@
       applyState(state);
       showToast(
         authMode === 'password_only'
-          ? 'Llave física desvinculada (Modo Solo Contraseña activo)'
-          : `Llave física vinculada en modo ${authMode}`
+          ? 'Modo actualizado: Contraseña'
+          : authMode === 'hardware_2fa'
+          ? 'Modo actualizado: DFA (Pass + Key)'
+          : 'Modo actualizado: Llave Física'
       );
     } catch (err) {
-      showToast(`Error FIDO2/U2F: ${err.message}`);
+      showToast(`Error: ${err.message}`);
     }
   });
 
