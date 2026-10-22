@@ -160,16 +160,18 @@ textarea:focus {
 }
 
 .lock-Workstation {
-  width: 780px;
+  width: 860px;
+  max-width: 95vw;
   background-color: var(--bg-panel);
   border: 1px solid var(--border-strong);
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 270px minmax(0, 1fr);
 }
 
 .lock-Workstation.spec-collapsed {
-  width: 520px;
-  grid-template-columns: 1fr;
+  width: 600px;
+  max-width: 95vw;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .lock-spec-pane {
@@ -219,12 +221,16 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
+  width: 100%;
 }
 
 .tab-strip {
   display: flex;
   border-bottom: 1px solid var(--border-strong);
   gap: 2px;
+  width: 100%;
+  min-width: 0;
 }
 
 .tab-btn {
@@ -249,6 +255,18 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  width: 100%;
+}
+
+.form-row > input[type="text"],
+.form-row > input[type="password"],
+.form-row > input[type="number"],
+.form-row > select,
+.form-row > textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .form-row label {
@@ -260,10 +278,13 @@ textarea:focus {
 .input-group {
   display: flex;
   gap: 6px;
+  width: 100%;
+  min-width: 0;
 }
 
 .input-group input {
   flex: 1;
+  min-width: 0;
 }
 
 .error-banner {
