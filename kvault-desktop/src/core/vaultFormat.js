@@ -260,20 +260,17 @@ function deserializeVaultFromBuffer(fileBuffer, masterPassword, keyFilePath = nu
   const nonce = fileBuffer.subarray(46, 58);
 
   let aadEndOffset = 58;
-  let hardwareSlot = null;
+  let hwSlotLen = 0;
 
   if (version === FORMAT_VERSION_V2) {
     if (fileBuffer.length < 78) {
       throw new Error('Cabecera .kvlt v2 truncada.');
     }
-    const hwSlotLen = fileBuffer.readUInt32LE(58);
+    hwSlotLen = fileBuffer.readUInt32LE(58);
     if (hwSlotLen > 65536 || fileBuffer.length < 62 + hwSlotLen + 16) {
       throw new Error('Longitud de Key Slot en cabecera .kvlt corrupta o manipulada.');
     }
     aadEndOffset = 62 + hwSlotLen;
-    if (hwSlotLen > 0) {
-      hardwareSlot = decodeHardwareSlotBinary(fileBuffer.subarray(62, aadEndOffset));
-    }
   }
 
   const aadHeader = fileBuffer.subarray(0, aadEndOffset);
@@ -293,6 +290,11 @@ function deserializeVaultFromBuffer(fileBuffer, masterPassword, keyFilePath = nu
       decipher.setAuthTag(authTag);
       compressedPayload = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
     }
+
+    // Solo descomprimir el Key Slot y el payload DESPUÉS de haber verificado criptográficamente el AuthTag AEAD
+    const hardwareSlot =
+      hwSlotLen > 0 ? decodeHardwareSlotBinary(fileBuffer.subarray(62, aadEndOffset)) : null;
+
     jsonBytes = zlib.gunzipSync(compressedPayload);
     const vault = JSON.parse(jsonBytes.toString('utf8'));
 
