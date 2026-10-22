@@ -1,13 +1,71 @@
 {
   "name": "kvault-desktop",
+  "productName": "KVault Desktop",
   "version": "1.0.0",
-  "description": "KVault Desktop — Gestor de credenciales de escritorio con contenedor binario autenticado (.kvlt AEAD), memoria cifrada ProtectedMemory, 2FA TOTP y Auto-Type nativo",
+  "description": "KVault Desktop — Gestor de credenciales de escritorio con contenedor binario autenticado (.kvlt AEAD), memoria cifrada ProtectedMemory, llaves físicas FIDO2/U2F, 2FA TOTP y Auto-Type nativo",
+  "author": "KVault Security",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node test/test-vault.js"
+    "test": "node test/test-vault.js",
+    "generate:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-icon.ps1",
+    "build:exe": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.kvault.desktop",
+    "productName": "KVault Desktop",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "samples/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "src/core/*.ps1",
+      "assets/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "kvlt",
+        "name": "KVault Container",
+        "description": "Bóveda Cifrada KVault (.kvlt)",
+        "icon": "assets/icon.ico",
+        "role": "Editor"
+      }
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "KVault Desktop"
+    }
   },
   "dependencies": {
     "electron": "^35.0.0"
+  },
+  "devDependencies": {
+    "electron-builder": "^25.1.8"
   }
 }

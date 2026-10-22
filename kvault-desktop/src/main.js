@@ -31,8 +31,13 @@ const {
   generateSecurePassword,
 } = require('./core/totp');
 const { importKeePassFile } = require('./importer/keepassImporter');
+const {
+  extractKvltPathFromArgs,
+  registerKvltFileAssociation,
+} = require('./core/fileAssociation');
 
 const memoryGuard = new ProtectedMemory();
+let pendingFilePath = extractKvltPathFromArgs(process.argv);
 
 /**
  * Estado en vivo dentro del proceso Main (aislado del Renderer).
@@ -151,8 +156,11 @@ function exportVaultPayloadForDisk() {
  */
 function getPublicState() {
   if (!session.unlocked) {
+    const fileToOpen = pendingFilePath;
+    pendingFilePath = null;
     return {
       unlocked: false,
+      pendingFilePath: fileToOpen || null,
       securityFlags: {
         contentProtection: true,
         contextIsolation: true,
@@ -311,12 +319,14 @@ async function copyWithAutoWipe(secretText, label = 'Secreto') {
 }
 
 function createWindow() {
+  const iconPath = path.join(__dirname, '..', 'assets', 'icon.ico');
   mainWindow = new BrowserWindow({
     width: 1340,
     height: 840,
     minWidth: 1024,
     minHeight: 640,
     backgroundColor: '#141619',
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     title: 'KVault — Utilitarian AEAD Password Safe (.kvlt)',
     autoHideMenuBar: true,
     webPreferences: {
@@ -1056,12 +1066,29 @@ ipcMain.handle('theme:set', (_evt, { mode }) => {
   return { mode: target, shouldUseDarkColors: nativeTheme.shouldUseDarkColors };
 });
 
-app.whenReady().then(() => {
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+const gotSingleLock = app.requestSingleInstanceLock();
+if (!gotSingleLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, commandLine) => {
+    const requestedKvlt = extractKvltPathFromArgs(commandLine);
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+      if (requestedKvlt && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('vault:open-file-request', { filePath: requestedKvlt });
+      }
+    }
   });
-});
+
+  app.whenReady().then(() => {
+    registerKvltFileAssociation(app).catch(() => {});
+    createWindow();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 app.on('window-all-closed', () => {
   wipeSessionMemory();

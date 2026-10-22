@@ -131,6 +131,10 @@
       statusVaultState.textContent = 'LOCKED (RAM ZEROIZED)';
       statusCipherInfo.textContent = 'AEAD: --';
       statusFilePath.textContent = 'Archivo: Ninguno';
+
+      if (state.pendingFilePath) {
+        preloadKvltFileForOpen(state.pendingFilePath);
+      }
       return;
     }
 
@@ -1085,6 +1089,24 @@
 
   const initialThemeMode = localStorage.getItem('kvault_theme_mode') || 'system';
   applyThemeMode(initialThemeMode, false);
+
+  async function preloadKvltFileForOpen(filePath) {
+    if (!filePath) return;
+    if (appState.unlocked) {
+      const st = await api.lockVault();
+      applyState(st);
+    }
+    tabOpenBtn.click();
+    openFilePathInput.value = filePath;
+    await refreshOpenHardwareSlotBanner(filePath);
+    openMasterPwdInput.focus();
+  }
+
+  if (api.onOpenFileRequest) {
+    api.onOpenFileRequest(({ filePath }) => {
+      preloadKvltFileForOpen(filePath);
+    });
+  }
 
   // Inicializar estado
   api.getState().then(applyState);

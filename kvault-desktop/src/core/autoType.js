@@ -4,7 +4,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { ProtectedMemory } = require('./protectedMemory');
 
-const PS_SCRIPT_PATH = path.join(__dirname, 'win32Clipboard.ps1');
+const PS_SCRIPT_PATH = path.join(__dirname, 'win32Clipboard.ps1').replace('app.asar', 'app.asar.unpacked');
 
 /**
  * Motor Nativo Win32 para Portapapeles Seguro (Anti-Win+V) y Auto-Type.

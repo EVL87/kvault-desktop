@@ -55,4 +55,9 @@ contextBridge.exposeInMainWorld('kvault', Object.freeze({
     ipcRenderer.on('vault:locked', handler);
     return () => ipcRenderer.removeListener('vault:locked', handler);
   },
+  onOpenFileRequest: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('vault:open-file-request', handler);
+    return () => ipcRenderer.removeListener('vault:open-file-request', handler);
+  },
 }));

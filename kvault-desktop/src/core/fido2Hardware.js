@@ -8,7 +8,7 @@ const { ProtectedMemory } = require('./protectedMemory');
 const { encryptChaCha20Poly1305, decryptChaCha20Poly1305 } = require('./chacha20poly1305');
 const { inspectVaultFileSlot } = require('./vaultFormat');
 
-const PS_WEBAUTHN_PATH = path.join(__dirname, 'win32WebAuthn.ps1');
+const PS_WEBAUTHN_PATH = path.join(__dirname, 'win32WebAuthn.ps1').replace('app.asar', 'app.asar.unpacked');
 const RP_ID = 'kvault.local';
 
 /**
