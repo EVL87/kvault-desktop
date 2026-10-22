@@ -176,6 +176,11 @@
       </div>
 
       <div class="toolbar-group">
+        <select id="themeSelectToolbar" class="btn mono" style="height: 26px; padding: 0 6px;" title="Tema visual">
+          <option value="system">Tema: Auto (OS)</option>
+          <option value="dark">Tema: Oscuro</option>
+          <option value="light">Tema: Claro</option>
+        </select>
         <input id="searchInput" type="text" class="search-box" placeholder="Filtrar registros..." />
         <button id="btnLockVault" class="btn btn-danger" type="button">Bloquear</button>
       </div>
@@ -282,7 +287,7 @@
                 </div>
                 <div id="inspUsername" class="kv-value"></div>
 
-                <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #22262d;" id="inspUrlBlock">
+                <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border-subtle);" id="inspUrlBlock">
                   <div class="kv-label">
                     <span>URL / Endpoint</span>
                     <div style="display: flex; gap: 4px;">
@@ -304,15 +309,15 @@
                   </div>
                 </div>
                 <div id="inspPassword" class="kv-value">••••••••••••••••••••••••</div>
-                <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid #22262d; display: flex; justify-content: space-between; font-size: 11px;" class="mono">
-                  <span id="inspMemoryBadge" style="color: #7ce09d;">RAM: ChaCha20-Poly1305</span>
+                <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; font-size: 11px;" class="mono">
+                  <span id="inspMemoryBadge" style="color: var(--badge-ok-text);">RAM: ChaCha20-Poly1305</span>
                   <span id="inspEntropyBadge"></span>
                 </div>
               </div>
 
               <!-- Bloque TOTP RFC 6238 en vivo + Notas -->
               <div class="kv-block">
-                <div id="inspTotpBlock" class="hidden" style="margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #22262d;">
+                <div id="inspTotpBlock" class="hidden" style="margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border-subtle);">
                   <div class="kv-label">
                     <span>2FA TOTP (RFC 6238)</span>
                     <button id="btnCopyTotp" class="btn btn-sm" type="button">Copiar TOTP</button>
@@ -354,7 +359,13 @@
     </div>
 
     <div class="status-segments">
-      <span id="statusClipboardTimer" style="color: #f0c36d; cursor: pointer; text-decoration: underline;" title="Clic o [Ctrl+Shift+X] para purgar inmediatamente Portapapeles + Historial Win+V">Portapapeles: Inactivo (Anti-Win+V Activo)</span>
+      <select id="themeSelectStatus" class="theme-select-compact" title="Tema visual">
+        <option value="system">Tema: Auto (OS)</option>
+        <option value="dark">Tema: Oscuro</option>
+        <option value="light">Tema: Claro</option>
+      </select>
+      <span>|</span>
+      <span id="statusClipboardTimer" style="color: var(--badge-warn-text); cursor: pointer; text-decoration: underline;" title="Clic o [Ctrl+Shift+X] para purgar inmediatamente el portapapeles">Portapapeles: Inactivo (Anti-Win+V Activo)</span>
       <span>|</span>
       <span id="statusFilePath">Archivo: [En Memoria]</span>
     </div>
@@ -441,7 +452,7 @@
             <span> Salida Generada</span>
             <span id="genEntropyBadge" class="mono"></span>
           </div>
-          <div id="genOutputText" class="kv-value" style="font-size: 14px; padding: 4px 0; color: #8ab8f0;"></div>
+          <div id="genOutputText" class="kv-value" style="font-size: 14px; padding: 4px 0; color: var(--text-code);"></div>
         </div>
 
         <div class="form-row">
@@ -517,63 +528,63 @@
           <div class="kv-label"><span>Atajos de Teclado</span></div>
           <table class="spec-table" style="width: 100%;">
             <tr>
-              <td class="mono" style="width: 150px; color: #8ab8f0;">Ctrl + V</td>
+              <td class="mono" style="width: 150px; color: var(--text-code);">Ctrl + V</td>
               <td>Auto-Type: cambia a ventana anterior y escribe <code>{USERNAME}{TAB}{PASSWORD}{ENTER}</code></td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Ctrl + Shift + V</td>
+              <td class="mono" style="color: var(--text-code);">Ctrl + Shift + V</td>
               <td>Auto-Type alternativo: <code>{USERNAME}{TAB}{PASSWORD}{TAB}{SPACE}</code></td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Ctrl + C</td>
+              <td class="mono" style="color: var(--text-code);">Ctrl + C</td>
               <td>Copiar Contraseña (excluida de Win+V, auto-limpieza en 12s)</td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Ctrl + B</td>
+              <td class="mono" style="color: var(--text-code);">Ctrl + B</td>
               <td>Copiar Usuario</td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Ctrl + T</td>
+              <td class="mono" style="color: var(--text-code);">Ctrl + T</td>
               <td>Copiar Código 2FA TOTP de 6 dígitos</td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Ctrl + U</td>
+              <td class="mono" style="color: var(--text-code);">Ctrl + U</td>
               <td>Abrir URL en el navegador predeterminado</td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Ctrl + Shift + U</td>
+              <td class="mono" style="color: var(--text-code);">Ctrl + Shift + U</td>
               <td>Copiar URL al portapapeles</td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Ctrl + Shift + X</td>
+              <td class="mono" style="color: var(--text-code);">Ctrl + Shift + X</td>
               <td>Purgar inmediatamente el secreto activo del portapapeles</td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Ctrl + I</td>
+              <td class="mono" style="color: var(--text-code);">Ctrl + I</td>
               <td>Crear Nueva Entrada</td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Ctrl + K</td>
+              <td class="mono" style="color: var(--text-code);">Ctrl + K</td>
               <td>Duplicar Entrada seleccionada</td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Enter / F2</td>
+              <td class="mono" style="color: var(--text-code);">Enter / F2</td>
               <td>Editar Entrada seleccionada</td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Supr (Delete)</td>
+              <td class="mono" style="color: var(--text-code);">Supr (Delete)</td>
               <td>Eliminar Entrada seleccionada</td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Ctrl + F</td>
+              <td class="mono" style="color: var(--text-code);">Ctrl + F</td>
               <td>Enfocar búsqueda instantánea</td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Ctrl + S</td>
+              <td class="mono" style="color: var(--text-code);">Ctrl + S</td>
               <td>Guardar contenedor <code>.kvlt</code></td>
             </tr>
             <tr>
-              <td class="mono" style="color: #8ab8f0;">Ctrl + L</td>
+              <td class="mono" style="color: var(--text-code);">Ctrl + L</td>
               <td>Purgar RAM (Zeroize) y Bloquear Bóveda</td>
             </tr>
           </table>

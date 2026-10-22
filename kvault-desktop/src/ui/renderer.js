@@ -1034,18 +1034,62 @@
 
   statusClipboardTimer.addEventListener('click', async () => {
     await api.wipeClipboardNow();
-    showToast('Portapapeles + Historial Win+V purgados manualmente');
+    showToast('Portapapeles purgado manualmente');
   });
 
   api.onClipboardStatus((data) => {
     if (data.active) {
       statusClipboardTimer.textContent = `Portapapeles: [${data.label}] Auto-Wipe en ${data.remainingSeconds}s (Clic para purgar ya)`;
-      statusClipboardTimer.style.color = '#f0c36d';
+      statusClipboardTimer.style.color = 'var(--badge-warn-text)';
     } else {
-      statusClipboardTimer.textContent = `Portapapeles: ${data.label || 'Purgado (Win32 + Win+V)'}`;
+      statusClipboardTimer.textContent = `Portapapeles: ${data.label || 'Purgado'}`;
       statusClipboardTimer.style.color = 'var(--status-ok)';
     }
   });
+
+  // ==========================================================================
+  // GESTIÓN DE TEMA VISUAL: OSCURO / CLARO / AUTOMÁTICO (OS)
+  // ==========================================================================
+  const themeSelectToolbar = document.getElementById('themeSelectToolbar');
+  const themeSelectStatus = document.getElementById('themeSelectStatus');
+  const osLightQuery = window.matchMedia('(prefers-color-scheme: light)');
+
+  function resolveEffectiveTheme(mode) {
+    if (mode === 'light' || mode === 'dark') return mode;
+    return osLightQuery.matches ? 'light' : 'dark';
+  }
+
+  async function applyThemeMode(mode, savePreference = true) {
+    const validMode = ['system', 'dark', 'light'].includes(mode) ? mode : 'system';
+    if (savePreference) {
+      localStorage.setItem('kvault_theme_mode', validMode);
+    }
+    if (themeSelectToolbar) themeSelectToolbar.value = validMode;
+    if (themeSelectStatus) themeSelectStatus.value = validMode;
+
+    if (api.setThemeMode) {
+      await api.setThemeMode(validMode).catch(() => {});
+    }
+
+    const effective = resolveEffectiveTheme(validMode);
+    document.documentElement.dataset.theme = effective;
+  }
+
+  if (themeSelectToolbar) {
+    themeSelectToolbar.addEventListener('change', (e) => applyThemeMode(e.target.value));
+  }
+  if (themeSelectStatus) {
+    themeSelectStatus.addEventListener('change', (e) => applyThemeMode(e.target.value));
+  }
+  osLightQuery.addEventListener('change', () => {
+    const savedMode = localStorage.getItem('kvault_theme_mode') || 'system';
+    if (savedMode === 'system') {
+      applyThemeMode('system', false);
+    }
+  });
+
+  const initialThemeMode = localStorage.getItem('kvault_theme_mode') || 'system';
+  applyThemeMode(initialThemeMode, false);
 
   // Inicializar estado
   api.getState().then(applyState);

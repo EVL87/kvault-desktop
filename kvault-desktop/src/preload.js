@@ -37,7 +37,8 @@ contextBridge.exposeInMainWorld('kvault', Object.freeze({
   runAutoType: (entryId, mode = 'enter') => ipcRenderer.invoke('autotype:run', { entryId, mode }),
   getTotp: (entryId) => ipcRenderer.invoke('secret:totp', { entryId }),
 
-  // Utilidades criptográficas e importador KeePass 2.x
+  // Utilidades criptográficas, tema e importador KeePass 2.x
+  setThemeMode: (mode) => ipcRenderer.invoke('theme:set', { mode }),
   generatePassword: (opts) => ipcRenderer.invoke('crypto:generate-password', opts),
   evaluatePassword: (password) => ipcRenderer.invoke('crypto:evaluate-password', password),
   importKeePassFile: (filePath) => ipcRenderer.invoke('importer:keepass', { filePath }),

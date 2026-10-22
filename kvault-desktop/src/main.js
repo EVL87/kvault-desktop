@@ -3,7 +3,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
-const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, clipboard, Menu, shell, nativeTheme } = require('electron');
 
 const { ProtectedMemory } = require('./core/protectedMemory');
 const {
@@ -1047,6 +1047,13 @@ ipcMain.handle('importer:load-sample', () => {
     sourceFormat: imported.sourceFormat || 'KeePass 2.x XML',
     state: getPublicState(),
   };
+});
+
+ipcMain.handle('theme:set', (_evt, { mode }) => {
+  const validModes = ['system', 'dark', 'light'];
+  const target = validModes.includes(mode) ? mode : 'system';
+  nativeTheme.themeSource = target;
+  return { mode: target, shouldUseDarkColors: nativeTheme.shouldUseDarkColors };
 });
 
 app.whenReady().then(() => {

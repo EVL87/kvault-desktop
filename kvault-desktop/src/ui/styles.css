@@ -8,19 +8,30 @@
 :root {
   --bg-app: #141619;
   --bg-panel: #1a1d21;
+  --bg-subpanel: #16191d;
   --bg-header: #20242a;
   --bg-row-alt: #171a1e;
   --bg-row-hover: #232830;
   --bg-row-selected: #1f334d;
   --bg-input: #111316;
+  --bg-btn: #262b33;
+  --bg-btn-hover: #303640;
+  --bg-btn-active: #1f2329;
+  --bg-status: #181b20;
+  --bg-ctx: #1c2026;
+  --bg-toast: #1e2938;
 
   --border-subtle: #2b3038;
   --border-strong: #3a414c;
   --border-focus: #4d84c4;
+  --border-cell: #1d2127;
 
   --text-primary: #d8dee6;
   --text-secondary: #939da8;
   --text-muted: #646e7a;
+  --text-link: #6da6eb;
+  --text-link-hover: #96c2f7;
+  --text-code: #8ab8f0;
 
   --accent-blue: #3b73b9;
   --accent-blue-hover: #4882cc;
@@ -28,8 +39,65 @@
   --status-warn: #d19a36;
   --status-danger: #c94a4a;
 
+  --badge-bg: #1c2026;
+  --badge-ok-bg: #16291e;
+  --badge-ok-text: #7ce09d;
+  --badge-ok-border: #2d6b45;
+  --badge-warn-bg: #2b2113;
+  --badge-warn-text: #f0c36d;
+  --badge-warn-border: #7d5b21;
+  --badge-danger-bg: #2d1616;
+  --badge-danger-text: #f29d9d;
+  --badge-danger-border: #7c3030;
+
   --font-ui: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "Consolas", "Cascadia Mono", "SFMono-Regular", monospace;
+}
+
+:root[data-theme="light"] {
+  --bg-app: #f3f5f8;
+  --bg-panel: #ffffff;
+  --bg-subpanel: #eef1f5;
+  --bg-header: #e4e8ee;
+  --bg-row-alt: #f8f9fb;
+  --bg-row-hover: #e8eef6;
+  --bg-row-selected: #cfe2fa;
+  --bg-input: #ffffff;
+  --bg-btn: #eaedf2;
+  --bg-btn-hover: #dce2ea;
+  --bg-btn-active: #cfd6e0;
+  --bg-status: #e2e6ec;
+  --bg-ctx: #ffffff;
+  --bg-toast: #e7f0fc;
+
+  --border-subtle: #d5dbe3;
+  --border-strong: #b8c1ce;
+  --border-focus: #2665b8;
+  --border-cell: #dfe4ec;
+
+  --text-primary: #1b2028;
+  --text-secondary: #4e5968;
+  --text-muted: #7a8696;
+  --text-link: #195eb8;
+  --text-link-hover: #0f448a;
+  --text-code: #1554a6;
+
+  --accent-blue: #2563b5;
+  --accent-blue-hover: #1d5299;
+  --status-ok: #1f8244;
+  --status-warn: #b57914;
+  --status-danger: #bd3131;
+
+  --badge-bg: #edf0f5;
+  --badge-ok-bg: #e2f5e9;
+  --badge-ok-text: #166634;
+  --badge-ok-border: #8fd1a6;
+  --badge-warn-bg: #fcf2dc;
+  --badge-warn-text: #8c5808;
+  --badge-warn-border: #e3be76;
+  --badge-danger-bg: #fce6e6;
+  --badge-danger-text: #9c2222;
+  --badge-danger-border: #e69c9c;
 }
 
 * {
@@ -76,7 +144,7 @@ input, textarea, select, button {
   gap: 6px;
   height: 26px;
   padding: 0 10px;
-  background-color: #262b33;
+  background-color: var(--bg-btn);
   border: 1px solid var(--border-strong);
   border-radius: 2px;
   color: var(--text-primary);
@@ -86,12 +154,12 @@ input, textarea, select, button {
 }
 
 .btn:hover:not(:disabled) {
-  background-color: #303640;
-  border-color: #4f5866;
+  background-color: var(--bg-btn-hover);
+  border-color: var(--border-focus);
 }
 
 .btn:active:not(:disabled) {
-  background-color: #1f2329;
+  background-color: var(--bg-btn-active);
 }
 
 .btn:disabled {
@@ -101,7 +169,7 @@ input, textarea, select, button {
 
 .btn-primary {
   background-color: var(--accent-blue);
-  border-color: #528ad0;
+  border-color: var(--accent-blue);
   color: #ffffff;
   font-weight: 600;
 }
@@ -111,13 +179,13 @@ input, textarea, select, button {
 }
 
 .btn-danger {
-  background-color: #3a2023;
-  border-color: #7c3539;
-  color: #f0b6b6;
+  background-color: var(--badge-danger-bg);
+  border-color: var(--badge-danger-border);
+  color: var(--badge-danger-text);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background-color: #4d262a;
+  filter: brightness(1.06);
 }
 
 .btn-sm {
@@ -175,7 +243,7 @@ textarea:focus {
 }
 
 .lock-spec-pane {
-  background-color: #16191d;
+  background-color: var(--bg-subpanel);
   border-right: 1px solid var(--border-subtle);
   padding: 16px;
   display: flex;
@@ -202,7 +270,7 @@ textarea:focus {
 
 .spec-table td {
   padding: 5px 0;
-  border-bottom: 1px solid #20242b;
+  border-bottom: 1px solid var(--border-subtle);
   vertical-align: top;
 }
 
@@ -235,7 +303,7 @@ textarea:focus {
 
 .tab-btn {
   padding: 6px 14px;
-  background-color: #171a1e;
+  background-color: var(--bg-row-alt);
   border: 1px solid var(--border-subtle);
   border-bottom: none;
   color: var(--text-secondary);
@@ -366,7 +434,7 @@ textarea:focus {
 }
 
 .pane-left-header:hover {
-  background-color: #292d34;
+  background-color: var(--bg-row-hover);
   color: var(--text-primary);
 }
 
@@ -477,7 +545,7 @@ textarea:focus {
 
 .audit-panel {
   border-top: 1px solid var(--border-strong);
-  background-color: #16191d;
+  background-color: var(--bg-subpanel);
   padding: 10px;
 }
 
@@ -545,7 +613,7 @@ textarea:focus {
 }
 
 .entry-table tbody tr {
-  border-bottom: 1px solid #1f2329;
+  border-bottom: 1px solid var(--border-cell);
   cursor: pointer;
 }
 
@@ -567,7 +635,7 @@ textarea:focus {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-right: 1px solid #1d2127;
+  border-right: 1px solid var(--border-cell);
 }
 
 /* Badges técnicos planos */
@@ -577,25 +645,25 @@ textarea:focus {
   font-family: var(--font-mono);
   font-size: 10.5px;
   border: 1px solid var(--border-strong);
-  background-color: #1c2026;
+  background-color: var(--badge-bg);
 }
 
 .badge-ok {
-  border-color: #2d6b45;
-  color: #7ce09d;
-  background-color: #16291e;
+  border-color: var(--badge-ok-border);
+  color: var(--badge-ok-text);
+  background-color: var(--badge-ok-bg);
 }
 
 .badge-warn {
-  border-color: #7d5b21;
-  color: #f0c36d;
-  background-color: #2b2113;
+  border-color: var(--badge-warn-border);
+  color: var(--badge-warn-text);
+  background-color: var(--badge-warn-bg);
 }
 
 .badge-danger {
-  border-color: #7c3030;
-  color: #f29d9d;
-  background-color: #2d1616;
+  border-color: var(--badge-danger-border);
+  color: var(--badge-danger-text);
+  background-color: var(--badge-danger-bg);
 }
 
 /* Bottom Pane: Horizontal Technical Entry Inspector (Collapsible) */
@@ -621,7 +689,7 @@ textarea:focus {
 }
 
 .pane-bottom-header:hover {
-  background-color: #292d34;
+  background-color: var(--bg-row-hover);
   color: var(--text-primary);
 }
 
@@ -656,7 +724,7 @@ textarea:focus {
 
 .kv-block {
   border: 1px solid var(--border-subtle);
-  background-color: #16191d;
+  background-color: var(--bg-subpanel);
   padding: 8px 10px;
 }
 
@@ -690,13 +758,13 @@ textarea:focus {
   font-size: 19px;
   font-weight: 700;
   letter-spacing: 2px;
-  color: #8ab8f0;
+  color: var(--text-code);
 }
 
 .totp-bar-track {
   width: 100%;
   height: 4px;
-  background-color: #242930;
+  background-color: var(--border-subtle);
   margin-top: 6px;
 }
 
@@ -712,7 +780,7 @@ textarea:focus {
 
 .status-bar {
   height: 24px;
-  background-color: #181b20;
+  background-color: var(--bg-status);
   border-top: 1px solid var(--border-strong);
   display: flex;
   align-items: center;
@@ -753,7 +821,7 @@ textarea:focus {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background-color: rgba(10, 12, 15, 0.78);
+  background-color: rgba(10, 12, 15, 0.65);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -789,7 +857,7 @@ textarea:focus {
 
 .modal-footer {
   padding: 10px 14px;
-  background-color: #16191d;
+  background-color: var(--bg-subpanel);
   border-top: 1px solid var(--border-subtle);
   display: flex;
   justify-content: flex-end;
@@ -803,9 +871,9 @@ textarea:focus {
 .ctx-menu {
   position: fixed;
   min-width: 290px;
-  background-color: #1c2026;
-  border: 1px solid #485260;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.65);
+  background-color: var(--bg-ctx);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
   padding: 3px 0;
   z-index: 100;
   font-size: 12px;
@@ -826,7 +894,7 @@ textarea:focus {
 }
 
 .ctx-item-danger {
-  color: #f29d9d;
+  color: var(--badge-danger-text);
 }
 
 .ctx-shortcut {
@@ -843,17 +911,17 @@ textarea:focus {
 
 /* Celdas interactivas estilo KeePass */
 .cell-link {
-  color: #6da6eb !important;
+  color: var(--text-link) !important;
   text-decoration: underline;
   cursor: pointer;
 }
 
 .cell-link:hover {
-  color: #96c2f7 !important;
+  color: var(--text-link-hover) !important;
 }
 
 .cell-interactive:hover {
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: rgba(128, 128, 128, 0.08);
 }
 
 /* Notificación discreta en barra / toast técnico */
@@ -861,12 +929,23 @@ textarea:focus {
   position: fixed;
   bottom: 32px;
   right: 14px;
-  background-color: #1e2938;
+  background-color: var(--bg-toast);
   border: 1px solid var(--accent-blue);
-  color: #e4ecf5;
+  color: var(--text-primary);
   padding: 6px 12px;
   font-family: var(--font-mono);
   font-size: 11.5px;
   z-index: 90;
+}
+
+.theme-select-compact {
+  height: 19px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  cursor: pointer;
 }
 
