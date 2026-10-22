@@ -1051,7 +1051,6 @@
   // GESTIÓN DE TEMA VISUAL: OSCURO / CLARO / AUTOMÁTICO (OS)
   // ==========================================================================
   const themeSelectToolbar = document.getElementById('themeSelectToolbar');
-  const themeSelectStatus = document.getElementById('themeSelectStatus');
   const osLightQuery = window.matchMedia('(prefers-color-scheme: light)');
 
   function resolveEffectiveTheme(mode) {
@@ -1065,7 +1064,6 @@
       localStorage.setItem('kvault_theme_mode', validMode);
     }
     if (themeSelectToolbar) themeSelectToolbar.value = validMode;
-    if (themeSelectStatus) themeSelectStatus.value = validMode;
 
     if (api.setThemeMode) {
       await api.setThemeMode(validMode).catch(() => {});
@@ -1077,9 +1075,6 @@
 
   if (themeSelectToolbar) {
     themeSelectToolbar.addEventListener('change', (e) => applyThemeMode(e.target.value));
-  }
-  if (themeSelectStatus) {
-    themeSelectStatus.addEventListener('change', (e) => applyThemeMode(e.target.value));
   }
   osLightQuery.addEventListener('change', () => {
     const savedMode = localStorage.getItem('kvault_theme_mode') || 'system';
