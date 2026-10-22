@@ -1,0 +1,13 @@
+{
+  "name": "kvault-desktop",
+  "version": "1.0.0",
+  "description": "KVault Desktop — Gestor de credenciales de escritorio con contenedor binario autenticado (.kvlt AEAD), memoria cifrada ProtectedMemory, 2FA TOTP y Auto-Type nativo",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/test-vault.js"
+  },
+  "dependencies": {
+    "electron": "^35.0.0"
+  }
+}

@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<KeePassFile>
+  <Meta>
+    <Generator>KeePass</Generator>
+    <DatabaseName>Bóveda Corporativa KeePass 2.61</DatabaseName>
+  </Meta>
+  <Root>
+    <Group>
+      <UUID>4f8a9c10b2e14d3a9f00112233445566</UUID>
+      <Name>Infraestructura &amp; Servidores</Name>
+      <Entry>
+        <UUID>10000000000000000000000000000001</UUID>
+        <Times>
+          <LastModificationTime>2026-10-18T14:22:10Z</LastModificationTime>
+        </Times>
+        <String>
+          <Key>Title</Key>
+          <Value>Nodo Producción Kubernetes (SSH Root)</Value>
+        </String>
+        <String>
+          <Key>UserName</Key>
+          <Value>root@k8s-prod-01.internal</Value>
+        </String>
+        <String>
+          <Key>Password</Key>
+          <Value>K8s#Pr0d!99x_vL2$zQ7pW</Value>
+        </String>
+        <String>
+          <Key>URL</Key>
+          <Value>ssh://10.240.0.10:22</Value>
+        </String>
+        <String>
+          <Key>Notes</Key>
+          <Value>Llave maestra de clúster primario. Rotación trimestral.</Value>
+        </String>
+        <String>
+          <Key>TimeOtp-Secret-Base32</Key>
+          <Value>JBSWY3DPEHPK3PXP</Value>
+        </String>
+      </Entry>
+      <Entry>
+        <UUID>10000000000000000000000000000002</UUID>
+        <Times>
+          <LastModificationTime>2026-10-19T09:15:00Z</LastModificationTime>
+        </Times>
+        <String>
+          <Key>Title</Key>
+          <Value>PostgreSQL Cluster Master</Value>
+        </String>
+        <String>
+          <Key>UserName</Key>
+          <Value>pgadmin_sec</Value>
+        </String>
+        <String>
+          <Key>Password</Key>
+          <Value>Pg$92_mK!xR4#vN8qZ1wL</Value>
+        </String>
+        <String>
+          <Key>URL</Key>
+          <Value>https://db-console.internal:5432</Value>
+        </String>
+        <String>
+          <Key>Notes</Key>
+          <Value>Base de datos principal transaccional.</Value>
+        </String>
+      </Entry>
+      <Group>
+        <UUID>4f8a9c10b2e14d3a9f00112233445577</UUID>
+        <Name>Desarrollo &amp; Git</Name>
+        <Entry>
+          <UUID>10000000000000000000000000000003</UUID>
+          <Times>
+            <LastModificationTime>2026-10-20T18:40:00Z</LastModificationTime>
+          </Times>
+          <String>
+            <Key>Title</Key>
+            <Value>GitHub Enterprise (Cuenta Principal)</Value>
+          </String>
+          <String>
+            <Key>UserName</Key>
+            <Value>emilio.sec@empresa.dev</Value>
+          </String>
+          <String>
+            <Key>Password</Key>
+            <Value>Gh!Ent_2026#xP9$mQ4vK8</Value>
+          </String>
+          <String>
+            <Key>URL</Key>
+            <Value>https://github.com/login</Value>
+          </String>
+          <String>
+            <Key>TimeOtp-Secret-Base32</Key>
+            <Value>GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ</Value>
+          </String>
+          <String>
+            <Key>Notes</Key>
+            <Value>Incluye token 2FA RFC 6238 importado desde KeePass 2.61.</Value>
+          </String>
+        </Entry>
+        <Entry>
+          <UUID>10000000000000000000000000000004</UUID>
+          <Times>
+            <LastModificationTime>2026-09-10T11:00:00Z</LastModificationTime>
+          </Times>
+          <String>
+            <Key>Title</Key>
+            <Value>Servidor FTP Legacy (Contraseña Débil de Prueba)</Value>
+          </String>
+          <String>
+            <Key>UserName</Key>
+            <Value>admin_ftp</Value>
+          </String>
+          <String>
+            <Key>Password</Key>
+            <Value>admin123</Value>
+          </String>
+          <String>
+            <Key>URL</Key>
+            <Value>http://legacy-ftp.internal</Value>
+          </String>
+          <String>
+            <Key>Notes</Key>
+            <Value>Entrada de prueba para verificar alertas de baja entropía y protocolo HTTP sin cifrar.</Value>
+          </String>
+        </Entry>
+      </Group>
+    </Group>
+  </Root>
+</KeePassFile>

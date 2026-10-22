@@ -1,0 +1,17 @@
+# Dependencias y binarios locales de laboratorio
+node_modules/
+**/node_modules/
+tools/
+docs/
+.agents/
+*.snapshot
+
+# Archivos de bóvedas personales y temporales transaccionales
+*.kvlt
+*.kvlt.tmp*
+*.kdbx
+
+# Logs y cachés del sistema operativo
+*.log
+.DS_Store
+Thumbs.db

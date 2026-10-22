@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';" />
+  <title>KVault — Utilitarian AEAD Password Safe (.kvlt)</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+
+  <!-- ========================================================================
+       VISTA 1: WORKSTATION DE DESBLOQUEO / CREACIÓN DE CONTENEDOR .KVLT
+       ======================================================================== -->
+  <section id="lockScreen" class="lock-screen">
+    <div id="lockWorkstation" class="lock-Workstation spec-collapsed">
+      <!-- Especificaciones técnicas en vivo del contenedor (Colapsado por defecto) -->
+      <div id="lockSpecPane" class="lock-spec-pane hidden">
+        <div>
+          <div class="lock-spec-title">
+            <span>KVAULT // CORE SPEC v1.0</span>
+          </div>
+          <table class="spec-table">
+            <tr>
+              <td>Formato</td>
+              <td>.kvlt (Magic: 0x4B564C54)</td>
+            </tr>
+            <tr>
+              <td>AEAD Ciphers</td>
+              <td>ChaCha20-Poly1305 / AES-256-GCM</td>
+            </tr>
+            <tr>
+              <td>Header AAD</td>
+              <td>58 bytes autenticados</td>
+            </tr>
+            <tr>
+              <td>KDF</td>
+              <td>Scrypt (N=16384, r=8, p=1)</td>
+            </tr>
+            <tr>
+              <td>RAM Engine</td>
+              <td>ProtectedMemory (ChaCha20)</td>
+            </tr>
+            <tr>
+              <td>Anti-Capture</td>
+              <td>SetWindowDisplayAffinity=ON</td>
+            </tr>
+            <tr>
+              <td>IPC Isolation</td>
+              <td>ContextBridge + Sandbox</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <!-- Formulario de Creación / Apertura -->
+      <div class="lock-form-pane">
+        <div class="tab-strip" style="justify-content: space-between; align-items: center;">
+          <div style="display: flex; gap: 2px;">
+            <button id="tabCreateBtn" class="tab-btn active" type="button">Inicializar Nueva Bóveda (.kvlt)</button>
+            <button id="tabOpenBtn" class="tab-btn" type="button">Abrir Contenedor Existente</button>
+          </div>
+          <button id="btnToggleCoreSpec" class="btn btn-sm mono" type="button" style="margin-bottom: 3px;" title="Mostrar u ocultar especificaciones técnicas">CORE SPEC [+]</button>
+        </div>
+
+        <div id="lockError" class="error-banner hidden"></div>
+
+        <!-- Formulario: Crear Nueva Bóveda -->
+        <form id="createVaultForm" style="display: flex; flex-direction: column; gap: 11px;">
+          <div class="form-row">
+            <label>Nombre de la Bóveda</label>
+            <input id="createNameInput" type="text" value="SecOps_Vault_Primary" required />
+          </div>
+
+          <div class="form-row">
+            <label>Primitiva Criptográfica AEAD</label>
+            <select id="createCipherSelect" class="mono">
+              <option value="1">0x01 — ChaCha20-Poly1305 (RFC 8439, 96-bit Nonce, 128-bit Tag)</option>
+              <option value="2">0x02 — AES-256-GCM (NIST SP 800-38D, 96-bit Nonce, 128-bit Tag)</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label>Contraseña Maestra</label>
+            <input id="createMasterPwd" type="password" placeholder="Ingrese frase maestra de alta entropía..." required />
+          </div>
+
+          <div class="form-row">
+            <label>Ruta de Archivo Destino (.kvlt opcional al iniciar)</label>
+            <div class="input-group">
+              <input id="createFilePathInput" type="text" class="mono" placeholder="En memoria hasta Guardar, o elija ruta..." readonly />
+              <button id="pickCreatePathBtn" type="button" class="btn">Examinar...</button>
+            </div>
+          </div>
+
+          <div class="form-row" style="flex-direction: row; align-items: center; gap: 8px; margin-top: 2px;">
+            <input id="seedSampleCheckbox" type="checkbox" checked />
+            <label for="seedSampleCheckbox" style="font-weight: 400; color: var(--text-primary);">
+              Incluir registros de prueba (Bastión AWS + Token GitHub + Semillas TOTP RFC 6238)
+            </label>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px;">
+            <button type="submit" class="btn btn-primary">Desbloquear e Inicializar Bóveda</button>
+          </div>
+        </form>
+
+        <!-- Formulario: Abrir Bóveda Existente -->
+        <form id="openVaultForm" class="hidden" style="display: flex; flex-direction: column; gap: 11px;">
+          <div class="form-row">
+            <label>Archivo de Bóveda (.kvlt)</label>
+            <div class="input-group">
+              <input id="openFilePathInput" type="text" class="mono" placeholder="Seleccione un archivo .kvlt..." required />
+              <button id="pickOpenPathBtn" type="button" class="btn">Examinar...</button>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label>Contraseña Maestra</label>
+            <input id="openMasterPwd" type="password" placeholder="Contraseña maestra del contenedor..." required />
+          </div>
+
+          <div class="form-row">
+            <label>Archivo Llave / KeyFile (Opcional)</label>
+            <div class="input-group">
+              <input id="openKeyFileInput" type="text" class="mono" placeholder="Sin KeyFile adicional" readonly />
+              <button id="pickOpenKeyFileBtn" type="button" class="btn">KeyFile...</button>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px;">
+            <button type="submit" class="btn btn-primary">Verificar AAD y Descifrar Bóveda</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       VISTA 2: WORKBENCH DE 3 PANELES (ESTILO KEEPASSXC / HERRAMIENTA NATIVA)
+       ======================================================================== -->
+  <main id="workbench" class="workbench hidden">
+    <!-- Barra de herramientas superior -->
+    <header class="toolbar">
+      <div class="toolbar-group">
+        <button id="btnNewEntry" class="btn btn-primary" type="button" title="Nueva Entrada [Ctrl+I]">+ Nueva Entrada</button>
+        <button id="btnNewGroup" class="btn" type="button">+ Grupo</button>
+        <div class="toolbar-divider"></div>
+        <button id="btnAutoTypeToolbar" class="btn" type="button" title="Cambiar a ventana anterior y escribir Usuario + Tab + Contraseña + Enter [Ctrl+V]">Auto-Type [Ctrl+V]</button>
+        <button id="btnCopyUserToolbar" class="btn" type="button" title="Copiar Usuario [Ctrl+B]">Usuario [Ctrl+B]</button>
+        <button id="btnCopyPwdToolbar" class="btn" type="button" title="Copiar Contraseña [Ctrl+C]">Clave [Ctrl+C]</button>
+        <button id="btnOpenUrlToolbar" class="btn" type="button" title="Abrir URL en navegador [Ctrl+U]">Abrir URL [Ctrl+U]</button>
+        <div class="toolbar-divider"></div>
+        <button id="btnImportKeePass" class="btn" type="button" title="Importar archivo KeePass 2.x (.xml / .csv)">Importar KeePass</button>
+        <button id="btnOpenGenerator" class="btn" type="button">Generador</button>
+        <button id="btnSaveVault" class="btn" type="button" title="Guardar bóveda [Ctrl+S]">Guardar</button>
+      </div>
+
+      <div class="toolbar-group">
+        <input id="searchInput" type="text" class="search-box" placeholder="Filtrar [Ctrl+F]..." />
+        <button id="btnLockVault" class="btn btn-danger" type="button" title="Purgar ProtectedMemory (Zeroize) y bloquear [Ctrl+L]">Bloquear [Ctrl+L]</button>
+      </div>
+    </header>
+
+    <!-- Layout dividido en 3 paneles -->
+    <div class="split-view">
+      <!-- PANEL IZQUIERDO: Árbol de Grupos + Resumen de Auditoría -->
+      <aside class="pane-left">
+        <div class="pane-section-header">
+          <span>Árbol de Grupos</span>
+          <span id="vaultTitleLabel" class="mono" style="color: var(--text-primary); font-weight: 400;"></span>
+        </div>
+        <ul id="groupTreeList" class="group-list"></ul>
+
+        <div class="audit-panel">
+          <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-secondary);">
+            Auditoría de Seguridad
+          </div>
+          <div class="audit-grid">
+            <div class="audit-cell">
+              <div class="audit-cell-label">Entradas</div>
+              <div id="auditTotalEntries" class="audit-cell-val">0</div>
+            </div>
+            <div class="audit-cell">
+              <div class="audit-cell-label">Entropía Prom.</div>
+              <div id="auditAvgEntropy" class="audit-cell-val">0 bits</div>
+            </div>
+            <div class="audit-cell">
+              <div class="audit-cell-label">Claves Débiles</div>
+              <div id="auditWeakCount" class="audit-cell-val" style="color: var(--status-ok);">0</div>
+            </div>
+            <div class="audit-cell">
+              <div class="audit-cell-label">Con 2FA TOTP</div>
+              <div id="auditTotpCount" class="audit-cell-val">0</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- PANEL CENTRAL: Tabla tabular de alta densidad -->
+      <section class="pane-center">
+        <div class="table-scroll">
+          <table class="entry-table">
+            <thead>
+              <tr>
+                <th style="width: 26%;">Título</th>
+                <th style="width: 22%;">Usuario</th>
+                <th style="width: 24%;">URL / Recurso</th>
+                <th style="width: 9%; text-align: center;">2FA</th>
+                <th style="width: 19%;">Entropía</th>
+              </tr>
+            </thead>
+            <tbody id="entryTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- PANEL DERECHO: Inspector Técnico de Entrada y ProtectedMemory -->
+      <aside class="pane-right">
+        <div class="pane-section-header">
+          <span>Inspector de Entrada</span>
+          <div id="inspectorActions" class="hidden" style="display: flex; gap: 4px;">
+            <button id="btnEditEntry" class="btn btn-sm" type="button">Editar</button>
+            <button id="btnDeleteEntry" class="btn btn-sm btn-danger" type="button">Eliminar</button>
+          </div>
+        </div>
+
+        <div id="inspectorEmpty" class="inspector-empty">
+          Seleccione un registro en la tabla para inspeccionar sus metadatos y descriptores ProtectedMemory.
+        </div>
+
+        <div id="inspectorContent" class="inspector-body hidden">
+          <div class="kv-block">
+            <div class="kv-label">
+              <span>Identificador & Título</span>
+              <span id="inspEntryId" class="mono" style="font-size: 10px; color: var(--text-muted);"></span>
+            </div>
+            <div id="inspTitle" style="font-size: 14px; font-weight: 700; color: var(--text-primary);"></div>
+            <div id="inspTags" style="margin-top: 5px; display: flex; gap: 4px; flex-wrap: wrap;"></div>
+          </div>
+
+          <div class="kv-block">
+            <div class="kv-label">
+              <span>Usuario / Identidad</span>
+              <button id="btnCopyUser" class="btn btn-sm" type="button">Copiar Usuario</button>
+            </div>
+            <div id="inspUsername" class="kv-value"></div>
+          </div>
+
+          <!-- Bloque ProtectedMemory de Contraseña -->
+          <div class="kv-block">
+            <div class="kv-label">
+              <span>Secreto en ProtectedMemory</span>
+              <div style="display: flex; gap: 4px;">
+                <button id="btnToggleRevealPwd" class="btn btn-sm" type="button">Revelar</button>
+                <button id="btnCopyPwd" class="btn btn-sm btn-primary" type="button">Copiar (15s Wipe)</button>
+              </div>
+            </div>
+            <div id="inspPassword" class="kv-value">••••••••••••••••••••••••</div>
+            <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid #22262d; display: flex; justify-content: space-between; font-size: 11px;" class="mono">
+              <span id="inspMemoryBadge" style="color: #7ce09d;">RAM: ChaCha20-Poly1305</span>
+              <span id="inspEntropyBadge"></span>
+            </div>
+          </div>
+
+          <!-- Bloque TOTP RFC 6238 en vivo -->
+          <div id="inspTotpBlock" class="kv-block hidden">
+            <div class="kv-label">
+              <span>Token 2FA TOTP (RFC 6238 / HMAC-SHA1)</span>
+              <button id="btnCopyTotp" class="btn btn-sm" type="button">Copiar TOTP</button>
+            </div>
+            <div class="totp-display">
+              <span id="inspTotpCode" class="totp-digits">--- ---</span>
+              <span id="inspTotpRemaining" class="mono" style="font-size: 11.5px; color: var(--text-secondary);">30s</span>
+            </div>
+            <div class="totp-bar-track">
+              <div id="inspTotpBar" class="totp-bar-fill" style="width: 100%;"></div>
+            </div>
+          </div>
+
+          <div class="kv-block" id="inspUrlBlock">
+            <div class="kv-label">
+              <span>URL / Endpoint (Doble clic para abrir)</span>
+              <div style="display: flex; gap: 4px;">
+                <button id="btnOpenUrl" class="btn btn-sm" type="button" title="Abrir en navegador [Ctrl+U]">Abrir [Ctrl+U]</button>
+                <button id="btnCopyUrl" class="btn btn-sm" type="button" title="Copiar URL [Ctrl+Shift+U]">Copiar URL</button>
+              </div>
+            </div>
+            <div id="inspUrl" class="kv-value cell-link" title="Doble clic para abrir en el navegador"></div>
+          </div>
+
+          <div class="kv-block">
+            <div class="kv-label">
+              <span>Secuencia Auto-Type (Estilo KeePass)</span>
+              <div style="display: flex; gap: 4px;">
+                <button id="btnInspAutoTypeEnter" class="btn btn-sm btn-primary" type="button" title="Alt+Tab -> Usuario -> Tab -> Clave -> Enter [Ctrl+V]">Auto-Type [Ctrl+V]</button>
+                <button id="btnInspAutoTypeTabSpace" class="btn btn-sm" type="button" title="Alt+Tab -> Usuario -> Tab -> Clave -> Tab -> Espacio [Ctrl+Shift+V]">Tab+Espacio</button>
+              </div>
+            </div>
+            <div class="mono" style="font-size: 11px; color: var(--text-secondary);">
+              Secuencia: <span style="color: #8ab8f0;">{USERNAME}{TAB}{PASSWORD}{ENTER}</span>
+            </div>
+          </div>
+
+          <div class="kv-block">
+            <div class="kv-label"><span>Notas Técnicas</span></div>
+            <div id="inspNotes" class="kv-value" style="white-space: pre-wrap; font-family: var(--font-ui);"></div>
+          </div>
+
+          <div class="kv-block">
+            <div class="kv-label"><span>Auditoría Temporal</span></div>
+            <div id="inspTimestamps" class="mono" style="font-size: 11px; color: var(--text-secondary);"></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <!-- ========================================================================
+       BARRA DE ESTADO TÉCNICA (SIEMPRE VISIBLE)
+       ======================================================================== -->
+  <footer class="status-bar">
+    <div class="status-segments">
+      <span class="status-seg">
+        <span id="statusDot" class="dot dot-warn"></span>
+        <span id="statusVaultState">LOCKED</span>
+      </span>
+      <span>|</span>
+      <span id="statusCipherInfo">AEAD: --</span>
+      <span>|</span>
+      <span>RAM: ChaCha20-Protected</span>
+      <span>|</span>
+      <span>SetWindowDisplayAffinity: ON</span>
+    </div>
+
+    <div class="status-segments">
+      <span id="statusClipboardTimer" style="color: #f0c36d; cursor: pointer; text-decoration: underline;" title="Clic o [Ctrl+Shift+X] para purgar inmediatamente Portapapeles + Historial Win+V">Portapapeles: Inactivo (Anti-Win+V Activo)</span>
+      <span>|</span>
+      <span id="statusFilePath">Archivo: [En Memoria]</span>
+    </div>
+  </footer>
+
+  <!-- ========================================================================
+       MODAL 1: CREAR / EDITAR ENTRADA
+       ======================================================================== -->
+  <div id="entryModal" class="modal-backdrop hidden">
+    <div class="modal-window">
+      <div class="modal-header">
+        <span id="entryModalTitle">Nueva Entrada en Bóveda</span>
+        <button id="btnCloseEntryModal" class="btn btn-sm" type="button">✕</button>
+      </div>
+      <form id="entryForm">
+        <input id="entryIdField" type="hidden" />
+        <div class="modal-body">
+          <div style="display: grid; grid-template-columns: 1fr 180px; gap: 8px;">
+            <div class="form-row">
+              <label>Título del Registro</label>
+              <input id="entryTitleField" type="text" required />
+            </div>
+            <div class="form-row">
+              <label>Grupo</label>
+              <select id="entryGroupField"></select>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div class="form-row">
+              <label>Usuario / Identificador</label>
+              <input id="entryUserField" type="text" class="mono" />
+            </div>
+            <div class="form-row">
+              <label>URL / Host</label>
+              <input id="entryUrlField" type="text" class="mono" placeholder="https://..." />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label>Contraseña (Se almacenará en sobre efímero ProtectedMemory)</label>
+            <div class="input-group">
+              <input id="entryPasswordField" type="text" class="mono" required />
+              <button id="btnModalGeneratePwd" class="btn" type="button">Generar 24 chars</button>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div class="form-row">
+              <label>Semilla TOTP Base32 u otpauth:// (Opcional)</label>
+              <input id="entryTotpField" type="text" class="mono" placeholder="JBSWY3DPEHPK3PXP" />
+            </div>
+            <div class="form-row">
+              <label>Etiquetas (separadas por coma)</label>
+              <input id="entryTagsField" type="text" class="mono" placeholder="prod, ssh, critico" />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label>Notas</label>
+            <textarea id="entryNotesField" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btnCancelEntryModal" class="btn" type="button">Cancelar</button>
+          <button class="btn btn-primary" type="submit">Cifrar en ProtectedMemory</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL 2: GENERADOR CRIPTOGRÁFICO DE CONTRASEÑAS (REJECTION SAMPLING)
+       ======================================================================== -->
+  <div id="generatorModal" class="modal-backdrop hidden">
+    <div class="modal-window" style="width: 460px;">
+      <div class="modal-header">
+        <span>Generador CSPRNG (Sin Sesgo de Módulo)</span>
+        <button id="btnCloseGenModal" class="btn btn-sm" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="kv-block">
+          <div class="kv-label">
+            <span> Salida Generada</span>
+            <span id="genEntropyBadge" class="mono"></span>
+          </div>
+          <div id="genOutputText" class="kv-value" style="font-size: 14px; padding: 4px 0; color: #8ab8f0;"></div>
+        </div>
+
+        <div class="form-row">
+          <label>Longitud: <span id="genLengthLabel" class="mono">24</span> caracteres</label>
+          <input id="genLengthRange" type="range" min="12" max="64" value="24" />
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px;">
+          <label><input id="genUpper" type="checkbox" checked /> Mayúsculas (A-Z)</label>
+          <label><input id="genLower" type="checkbox" checked /> Minúsculas (a-z)</label>
+          <label><input id="genDigits" type="checkbox" checked /> Dígitos (0-9)</label>
+          <label><input id="genSymbols" type="checkbox" checked /> Símbolos (!@#$...)</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnRegeneratePwd" class="btn" type="button">Regenerar</button>
+        <button id="btnCloseGenModal2" class="btn btn-primary" type="button">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MENÚ CONTEXTUAL DE CLIC DERECHO (ESTILO KEEPASS 2.X)
+       ======================================================================== -->
+  <div id="contextMenu" class="ctx-menu hidden">
+    <div class="ctx-item" data-action="autotype-enter">
+      <span>Ejecutar Auto-Type (Usuario → Tab → Clave → Enter)</span>
+      <span class="ctx-shortcut">Ctrl+V</span>
+    </div>
+    <div class="ctx-item" data-action="autotype-tab-space">
+      <span>Auto-Type con Tab + Espacio</span>
+      <span class="ctx-shortcut">Ctrl+Shift+V</span>
+    </div>
+    <div class="ctx-item" data-action="autotype-no-submit">
+      <span>Auto-Type sin Enter (Solo rellenar campos)</span>
+      <span class="ctx-shortcut"></span>
+    </div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="copy-password">
+      <span>Copiar Contraseña (15s Auto-Wipe)</span>
+      <span class="ctx-shortcut">Ctrl+C</span>
+    </div>
+    <div class="ctx-item" data-action="copy-username">
+      <span>Copiar Usuario</span>
+      <span class="ctx-shortcut">Ctrl+B</span>
+    </div>
+    <div class="ctx-item" data-action="copy-totp">
+      <span>Copiar Token 2FA TOTP</span>
+      <span class="ctx-shortcut">Ctrl+T</span>
+    </div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="open-url">
+      <span>Abrir URL en Navegador</span>
+      <span class="ctx-shortcut">Ctrl+U</span>
+    </div>
+    <div class="ctx-item" data-action="copy-url">
+      <span>Copiar URL al Portapapeles</span>
+      <span class="ctx-shortcut">Ctrl+Shift+U</span>
+    </div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="edit-entry">
+      <span>Editar Entrada...</span>
+      <span class="ctx-shortcut">Enter</span>
+    </div>
+    <div class="ctx-item" data-action="duplicate-entry">
+      <span>Duplicar Entrada</span>
+      <span class="ctx-shortcut">Ctrl+K</span>
+    </div>
+    <div class="ctx-item ctx-item-danger" data-action="delete-entry">
+      <span>Eliminar Entrada</span>
+      <span class="ctx-shortcut">Supr</span>
+    </div>
+  </div>
+
+  <!-- Toast discreto de confirmación de acción -->
+  <div id="actionToast" class="action-toast hidden"></div>
+
+  <script src="./renderer.js"></script>
+</body>
+</html>
