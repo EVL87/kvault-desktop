@@ -1,6 +1,7 @@
 param(
-    [Parameter(Mandatory=$true)][string]$OpenCommand,
-    [Parameter(Mandatory=$true)][string]$IconPath
+    [Parameter(Mandatory=$true)][string]$ExePath,
+    [Parameter(Mandatory=$true)][string]$IconFile,
+    [string]$AppDir = ""
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,6 +13,14 @@ $progKey = "HKCU:\Software\Classes\$progId"
 $iconKey = "$progKey\DefaultIcon"
 $cmdKey = "$progKey\shell\open\command"
 
+$openCommand = if ([string]::IsNullOrWhiteSpace($AppDir)) {
+    "`"$ExePath`" `"%1`""
+} else {
+    "`"$ExePath`" `"$AppDir`" `"%1`""
+}
+
+$iconValue = "`"$IconFile`",0"
+
 if (-not (Test-Path $extKey)) { New-Item -Path $extKey -Force | Out-Null }
 Set-ItemProperty -Path $extKey -Name '(Default)' -Value $progId
 
@@ -19,10 +28,10 @@ if (-not (Test-Path $progKey)) { New-Item -Path $progKey -Force | Out-Null }
 Set-ItemProperty -Path $progKey -Name '(Default)' -Value 'Bóveda Cifrada KVault (.kvlt)'
 
 if (-not (Test-Path $iconKey)) { New-Item -Path $iconKey -Force | Out-Null }
-Set-ItemProperty -Path $iconKey -Name '(Default)' -Value $IconPath
+Set-ItemProperty -Path $iconKey -Name '(Default)' -Value $iconValue
 
 if (-not (Test-Path $cmdKey)) { New-Item -Path $cmdKey -Force | Out-Null }
-Set-ItemProperty -Path $cmdKey -Name '(Default)' -Value $OpenCommand
+Set-ItemProperty -Path $cmdKey -Name '(Default)' -Value $openCommand
 
 # Notificar a Windows Explorer (SHChangeNotify SHCNE_ASSOCCHANGED) para refrescar el icono de los archivos .kvlt inmediatamente
 $csharp = @"
@@ -39,4 +48,4 @@ public static class ShellNotify {
 
 Add-Type -TypeDefinition $csharp -Language CSharp
 [ShellNotify]::Refresh()
-Write-Output "OK|ASSOCIATED"
+Write-Output "OK|ASSOCIATED|$iconValue|$openCommand"

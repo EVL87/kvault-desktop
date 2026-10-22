@@ -35,31 +35,29 @@ function registerKvltFileAssociation(app) {
   const exePath = process.execPath;
   const appRoot = resolveUnpackedPath(path.resolve(__dirname, '..', '..'));
   const icoFile = path.join(appRoot, 'assets', 'icon.ico');
+  const iconTarget = fs.existsSync(icoFile) ? icoFile : exePath;
 
-  const openCommand = isPackaged
-    ? `"${exePath}" "%1"`
-    : `"${exePath}" "${path.resolve(__dirname, '..', '..')}" "%1"`;
+  const args = [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    PS_ASSOC_PATH,
+    '-ExePath',
+    exePath,
+    '-IconFile',
+    iconTarget,
+  ];
 
-  // Si existe assets/icon.ico desempaquetado lo usamos directamente; si está empaquetado también sirve el propio .exe,0
-  const iconResource = fs.existsSync(icoFile)
-    ? `"${icoFile}",0`
-    : `"${exePath}",0`;
+  if (!isPackaged) {
+    args.push('-AppDir', path.resolve(__dirname, '..', '..'));
+  }
 
   return new Promise((resolve) => {
     execFile(
       'powershell.exe',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-File',
-        PS_ASSOC_PATH,
-        '-OpenCommand',
-        openCommand,
-        '-IconPath',
-        iconResource,
-      ],
+      args,
       { windowsHide: true, timeout: 10000 },
       (err, stdout) => {
         if (err) return resolve(false);
