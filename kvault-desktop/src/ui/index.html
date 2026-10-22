@@ -181,42 +181,54 @@
       </div>
     </header>
 
-    <!-- Layout dividido en 3 paneles -->
-    <div class="split-view">
-      <!-- PANEL IZQUIERDO: Árbol de Grupos + Resumen de Auditoría -->
-      <aside class="pane-left">
-        <div class="pane-section-header">
-          <span>Árbol de Grupos</span>
-          <span id="vaultTitleLabel" class="mono" style="color: var(--text-primary); font-weight: 400;"></span>
-        </div>
-        <ul id="groupTreeList" class="group-list"></ul>
-
-        <div class="audit-panel">
-          <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-secondary);">
-            Auditoría de Seguridad
+    <!-- Layout principal: Árbol lateral colapsable + Área central (Tabla + Inspector inferior horizontal) -->
+    <div id="splitView" class="split-view left-collapsed">
+      <!-- PANEL IZQUIERDO: Árbol de Grupos + Resumen de Auditoría (Colapsable) -->
+      <aside id="paneLeft" class="pane-left collapsed">
+        <div class="pane-section-header pane-left-header" id="btnToggleGroups" title="Mostrar / Ocultar Árbol de Grupos">
+          <div class="pane-left-header-expanded">
+            <span>◀ Árbol de Grupos</span>
+            <span id="vaultTitleLabel" class="mono" style="color: var(--text-primary); font-weight: 400;"></span>
           </div>
-          <div class="audit-grid">
-            <div class="audit-cell">
-              <div class="audit-cell-label">Entradas</div>
-              <div id="auditTotalEntries" class="audit-cell-val">0</div>
+          <div class="pane-left-header-collapsed">
+            <span>▶</span>
+          </div>
+        </div>
+
+        <div class="pane-left-rail-label" id="btnExpandGroupsRail" title="Expandir Árbol de Grupos">
+          <span>GRUPOS</span>
+        </div>
+
+        <div class="pane-left-content">
+          <ul id="groupTreeList" class="group-list"></ul>
+
+          <div class="audit-panel">
+            <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-secondary);">
+              Auditoría de Seguridad
             </div>
-            <div class="audit-cell">
-              <div class="audit-cell-label">Entropía Prom.</div>
-              <div id="auditAvgEntropy" class="audit-cell-val">0 bits</div>
-            </div>
-            <div class="audit-cell">
-              <div class="audit-cell-label">Claves Débiles</div>
-              <div id="auditWeakCount" class="audit-cell-val" style="color: var(--status-ok);">0</div>
-            </div>
-            <div class="audit-cell">
-              <div class="audit-cell-label">Con 2FA TOTP</div>
-              <div id="auditTotpCount" class="audit-cell-val">0</div>
+            <div class="audit-grid">
+              <div class="audit-cell">
+                <div class="audit-cell-label">Entradas</div>
+                <div id="auditTotalEntries" class="audit-cell-val">0</div>
+              </div>
+              <div class="audit-cell">
+                <div class="audit-cell-label">Entropía Prom.</div>
+                <div id="auditAvgEntropy" class="audit-cell-val">0 bits</div>
+              </div>
+              <div class="audit-cell">
+                <div class="audit-cell-label">Claves Débiles</div>
+                <div id="auditWeakCount" class="audit-cell-val" style="color: var(--status-ok);">0</div>
+              </div>
+              <div class="audit-cell">
+                <div class="audit-cell-label">Con 2FA TOTP</div>
+                <div id="auditTotpCount" class="audit-cell-val">0</div>
+              </div>
             </div>
           </div>
         </div>
       </aside>
 
-      <!-- PANEL CENTRAL: Tabla tabular de alta densidad -->
+      <!-- ÁREA DERECHA/CENTRAL: Tabla arriba + Inspector horizontal abajo -->
       <section class="pane-center">
         <div class="table-scroll">
           <table class="entry-table">
@@ -232,93 +244,95 @@
             <tbody id="entryTableBody"></tbody>
           </table>
         </div>
+
+        <!-- PANEL INFERIOR HORIZONTAL: Inspector de Entrada (Colapsado por defecto) -->
+        <aside id="paneBottom" class="pane-bottom collapsed">
+          <div class="pane-section-header pane-bottom-header" id="btnToggleInspector" title="Mostrar / Ocultar Inspector de Entrada">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span id="inspectorToggleIcon">▲</span>
+              <span>Inspector de Entrada</span>
+              <span id="inspCollapsedSummary" class="mono" style="color: var(--text-primary); font-weight: 400; text-transform: none;"></span>
+            </div>
+            <div id="inspectorActions" class="hidden" style="display: flex; gap: 4px;">
+              <button id="btnEditEntry" class="btn btn-sm" type="button">Editar</button>
+              <button id="btnDeleteEntry" class="btn btn-sm btn-danger" type="button">Eliminar</button>
+            </div>
+          </div>
+
+          <div class="pane-bottom-content">
+            <div id="inspectorEmpty" class="inspector-empty">
+              Seleccione un registro en la tabla para inspeccionar sus metadatos.
+            </div>
+
+            <div id="inspectorContent" class="inspector-body-horizontal hidden">
+              <div class="kv-block">
+                <div class="kv-label">
+                  <span>Identificador & Título</span>
+                  <span id="inspEntryId" class="mono" style="font-size: 10px; color: var(--text-muted);"></span>
+                </div>
+                <div id="inspTitle" style="font-size: 13px; font-weight: 700; color: var(--text-primary);"></div>
+                <div id="inspTags" style="margin-top: 5px; display: flex; gap: 4px; flex-wrap: wrap;"></div>
+                <div id="inspTimestamps" class="mono" style="margin-top: 6px; font-size: 10.5px; color: var(--text-secondary);"></div>
+              </div>
+
+              <div class="kv-block">
+                <div class="kv-label">
+                  <span>Usuario / Identidad</span>
+                  <button id="btnCopyUser" class="btn btn-sm" type="button">Copiar</button>
+                </div>
+                <div id="inspUsername" class="kv-value"></div>
+
+                <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #22262d;" id="inspUrlBlock">
+                  <div class="kv-label">
+                    <span>URL / Endpoint</span>
+                    <div style="display: flex; gap: 4px;">
+                      <button id="btnOpenUrl" class="btn btn-sm" type="button">Abrir</button>
+                      <button id="btnCopyUrl" class="btn btn-sm" type="button">Copiar</button>
+                    </div>
+                  </div>
+                  <div id="inspUrl" class="kv-value cell-link" title="Doble clic para abrir en el navegador"></div>
+                </div>
+              </div>
+
+              <!-- Bloque ProtectedMemory de Contraseña -->
+              <div class="kv-block">
+                <div class="kv-label">
+                  <span>Secreto en ProtectedMemory</span>
+                  <div style="display: flex; gap: 4px;">
+                    <button id="btnToggleRevealPwd" class="btn btn-sm" type="button">Revelar</button>
+                    <button id="btnCopyPwd" class="btn btn-sm btn-primary" type="button">Copiar (12s)</button>
+                  </div>
+                </div>
+                <div id="inspPassword" class="kv-value">••••••••••••••••••••••••</div>
+                <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid #22262d; display: flex; justify-content: space-between; font-size: 11px;" class="mono">
+                  <span id="inspMemoryBadge" style="color: #7ce09d;">RAM: ChaCha20-Poly1305</span>
+                  <span id="inspEntropyBadge"></span>
+                </div>
+              </div>
+
+              <!-- Bloque TOTP RFC 6238 en vivo + Notas -->
+              <div class="kv-block">
+                <div id="inspTotpBlock" class="hidden" style="margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #22262d;">
+                  <div class="kv-label">
+                    <span>2FA TOTP (RFC 6238)</span>
+                    <button id="btnCopyTotp" class="btn btn-sm" type="button">Copiar TOTP</button>
+                  </div>
+                  <div class="totp-display">
+                    <span id="inspTotpCode" class="totp-digits">--- ---</span>
+                    <span id="inspTotpRemaining" class="mono" style="font-size: 11.5px; color: var(--text-secondary);">30s</span>
+                  </div>
+                  <div class="totp-bar-track">
+                    <div id="inspTotpBar" class="totp-bar-fill" style="width: 100%;"></div>
+                  </div>
+                </div>
+
+                <div class="kv-label"><span>Notas Técnicas</span></div>
+                <div id="inspNotes" class="kv-value" style="white-space: pre-wrap; font-family: var(--font-ui); max-height: 76px; overflow-y: auto;"></div>
+              </div>
+            </div>
+          </div>
+        </aside>
       </section>
-
-      <!-- PANEL DERECHO: Inspector Técnico de Entrada y ProtectedMemory -->
-      <aside class="pane-right">
-        <div class="pane-section-header">
-          <span>Inspector de Entrada</span>
-          <div id="inspectorActions" class="hidden" style="display: flex; gap: 4px;">
-            <button id="btnEditEntry" class="btn btn-sm" type="button">Editar</button>
-            <button id="btnDeleteEntry" class="btn btn-sm btn-danger" type="button">Eliminar</button>
-          </div>
-        </div>
-
-        <div id="inspectorEmpty" class="inspector-empty">
-          Seleccione un registro en la tabla para inspeccionar sus metadatos y descriptores ProtectedMemory.
-        </div>
-
-        <div id="inspectorContent" class="inspector-body hidden">
-          <div class="kv-block">
-            <div class="kv-label">
-              <span>Identificador & Título</span>
-              <span id="inspEntryId" class="mono" style="font-size: 10px; color: var(--text-muted);"></span>
-            </div>
-            <div id="inspTitle" style="font-size: 14px; font-weight: 700; color: var(--text-primary);"></div>
-            <div id="inspTags" style="margin-top: 5px; display: flex; gap: 4px; flex-wrap: wrap;"></div>
-          </div>
-
-          <div class="kv-block">
-            <div class="kv-label">
-              <span>Usuario / Identidad</span>
-              <button id="btnCopyUser" class="btn btn-sm" type="button">Copiar Usuario</button>
-            </div>
-            <div id="inspUsername" class="kv-value"></div>
-          </div>
-
-          <!-- Bloque ProtectedMemory de Contraseña -->
-          <div class="kv-block">
-            <div class="kv-label">
-              <span>Secreto en ProtectedMemory</span>
-              <div style="display: flex; gap: 4px;">
-                <button id="btnToggleRevealPwd" class="btn btn-sm" type="button">Revelar</button>
-                <button id="btnCopyPwd" class="btn btn-sm btn-primary" type="button">Copiar (15s Wipe)</button>
-              </div>
-            </div>
-            <div id="inspPassword" class="kv-value">••••••••••••••••••••••••</div>
-            <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid #22262d; display: flex; justify-content: space-between; font-size: 11px;" class="mono">
-              <span id="inspMemoryBadge" style="color: #7ce09d;">RAM: ChaCha20-Poly1305</span>
-              <span id="inspEntropyBadge"></span>
-            </div>
-          </div>
-
-          <!-- Bloque TOTP RFC 6238 en vivo -->
-          <div id="inspTotpBlock" class="kv-block hidden">
-            <div class="kv-label">
-              <span>Token 2FA TOTP (RFC 6238 / HMAC-SHA1)</span>
-              <button id="btnCopyTotp" class="btn btn-sm" type="button">Copiar TOTP</button>
-            </div>
-            <div class="totp-display">
-              <span id="inspTotpCode" class="totp-digits">--- ---</span>
-              <span id="inspTotpRemaining" class="mono" style="font-size: 11.5px; color: var(--text-secondary);">30s</span>
-            </div>
-            <div class="totp-bar-track">
-              <div id="inspTotpBar" class="totp-bar-fill" style="width: 100%;"></div>
-            </div>
-          </div>
-
-          <div class="kv-block" id="inspUrlBlock">
-            <div class="kv-label">
-              <span>URL / Endpoint</span>
-              <div style="display: flex; gap: 4px;">
-                <button id="btnOpenUrl" class="btn btn-sm" type="button">Abrir</button>
-                <button id="btnCopyUrl" class="btn btn-sm" type="button">Copiar</button>
-              </div>
-            </div>
-            <div id="inspUrl" class="kv-value cell-link" title="Doble clic para abrir en el navegador"></div>
-          </div>
-
-          <div class="kv-block">
-            <div class="kv-label"><span>Notas Técnicas</span></div>
-            <div id="inspNotes" class="kv-value" style="white-space: pre-wrap; font-family: var(--font-ui);"></div>
-          </div>
-
-          <div class="kv-block">
-            <div class="kv-label"><span>Auditoría Temporal</span></div>
-            <div id="inspTimestamps" class="mono" style="font-size: 11px; color: var(--text-secondary);"></div>
-          </div>
-        </div>
-      </aside>
     </div>
   </main>
 

@@ -25,6 +25,11 @@
   const lockError = document.getElementById('lockError');
 
   // Referencias DOM — Workbench
+  const splitView = document.getElementById('splitView');
+  const paneLeft = document.getElementById('paneLeft');
+  const paneBottom = document.getElementById('paneBottom');
+  const inspectorToggleIcon = document.getElementById('inspectorToggleIcon');
+  const inspCollapsedSummary = document.getElementById('inspCollapsedSummary');
   const groupTreeList = document.getElementById('groupTreeList');
   const entryTableBody = document.getElementById('entryTableBody');
   const searchInput = document.getElementById('searchInput');
@@ -348,6 +353,7 @@
       inspectorEmpty.classList.remove('hidden');
       inspectorContent.classList.add('hidden');
       inspectorActions.classList.add('hidden');
+      if (inspCollapsedSummary) inspCollapsedSummary.textContent = '';
       return;
     }
 
@@ -355,6 +361,9 @@
     inspectorContent.classList.remove('hidden');
     inspectorActions.classList.remove('hidden');
 
+    if (inspCollapsedSummary) {
+      inspCollapsedSummary.textContent = `— ${entry.title}`;
+    }
     inspEntryId.textContent = `UUID: ${entry.id.slice(0, 13)}...`;
     inspTitle.textContent = entry.title;
     inspUsername.textContent = entry.username || '--';
@@ -703,8 +712,31 @@
   inspPassword.addEventListener('dblclick', () => doCopyField(appState.selectedEntryId, 'password'));
   inspTotpCode.addEventListener('dblclick', () => doCopyField(appState.selectedEntryId, 'totp'));
 
-  document.getElementById('btnEditEntry').addEventListener('click', () => openEditModalForEntry(appState.selectedEntryId));
-  document.getElementById('btnDeleteEntry').addEventListener('click', () => doDeleteEntry(appState.selectedEntryId));
+  document.getElementById('btnEditEntry').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    openEditModalForEntry(appState.selectedEntryId);
+  });
+  document.getElementById('btnDeleteEntry').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    doDeleteEntry(appState.selectedEntryId);
+  });
+
+  // Colapsar / Expandir Árbol de Grupos (Panel Izquierdo) e Inspector Horizontal (Panel Inferior)
+  function toggleGroupTreePane() {
+    const isCollapsed = paneLeft.classList.toggle('collapsed');
+    splitView.classList.toggle('left-collapsed', isCollapsed);
+  }
+
+  function toggleBottomInspectorPane() {
+    const isCollapsed = paneBottom.classList.toggle('collapsed');
+    if (inspectorToggleIcon) {
+      inspectorToggleIcon.textContent = isCollapsed ? '▲' : '▼';
+    }
+  }
+
+  document.getElementById('btnToggleGroups').addEventListener('click', toggleGroupTreePane);
+  document.getElementById('btnExpandGroupsRail').addEventListener('click', toggleGroupTreePane);
+  document.getElementById('btnToggleInspector').addEventListener('click', toggleBottomInspectorPane);
 
   // ==========================================================================
   // MODAL DE ENTRADA (CREAR / EDITAR)
