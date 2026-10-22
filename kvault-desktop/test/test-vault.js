@@ -203,7 +203,34 @@ console.log('===================================================================
   const combined = combinePasswordAndHardwareFactor('Pass1234', crypto.randomBytes(32).toString('hex'));
   assert.equal(combined.length, 64);
 
-  console.log('[OK] 6/6 Llaves Físicas FIDO2 / U2F: Parser COSE P-256, firma ECDSA de hardware y Key Slot DPAPI verificados.');
+  // Verificar incrustación binaria unificada del Key Slot dentro del único archivo .kvlt y su protección AAD
+  const slotObj = {
+    version: 1,
+    authMode: 'hardware_passwordless',
+    deviceLabel: 'Yubico Security Key C NFC',
+    credentialIdB64: credId.toString('base64'),
+    publicKeySpkiB64: parsedCose.publicKeySpkiB64,
+    wrappedSecretB64: wrapped,
+  };
+  const unifiedBlob = serializeVaultToBuffer(
+    { meta: { name: 'Unified_KVLT' }, groups: [], entries: [] },
+    'VaultSecret_FIDO2_2026',
+    { cipher: 'chacha20-poly1305', hardwareSlot: slotObj }
+  );
+  const decodedUnified = deserializeVaultFromBuffer(unifiedBlob, 'VaultSecret_FIDO2_2026');
+  assert.equal(decodedUnified.hardwareSlot.deviceLabel, 'Yubico Security Key C NFC');
+  assert.equal(decodedUnified.hardwareSlot.credentialIdB64, credId.toString('base64'));
+
+  // Alterar 1 byte en la región del Key Slot incrustado (offset 65) y comprobar que el AAD de ChaCha20-Poly1305 lo rechaza
+  const tamperedSlotBlob = Buffer.from(unifiedBlob);
+  tamperedSlotBlob[65] ^= 0xff;
+  assert.throws(
+    () => deserializeVaultFromBuffer(tamperedSlotBlob, 'VaultSecret_FIDO2_2026'),
+    /AEAD|alterada|incorrecta/i,
+    'El AuthTag AEAD debe rechazar cualquier manipulación del Key Slot incrustado en el archivo .kvlt'
+  );
+
+  console.log('[OK] 6/6 Llaves Físicas FIDO2 / U2F: Slot unificado dentro de .kvlt (con protección AAD) y firma P-256 verificados.');
   console.log('======================================================================');
   console.log(' TODAS LAS PRUEBAS PASARON EXITOSAMENTE');
   console.log('======================================================================');

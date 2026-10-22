@@ -8,14 +8,15 @@ const { ProtectedMemory } = require('./protectedMemory');
 const { encryptChaCha20Poly1305, decryptChaCha20Poly1305 } = require('./chacha20poly1305');
 
 /**
- * Especificación del Formato Binario `.kvlt` (KVault Container Format v1)
+ * Especificación del Formato Binario Unificado `.kvlt` (KVault Container Format v1 / v2)
  *
  * Características de diseño:
- * 1. Serialización binaria compacta comprimida con GZip nivel 9.
- * 2. Cabecera binaria de 74 bytes cuyos primeros 58 bytes se autentican mediante
- *    AEAD Additional Authenticated Data (AAD). Si se altera 1 solo bit de la cabecera
- *    (como parámetros KDF o identificador de algoritmo), la verificación de etiqueta AEAD
- *    rechaza el contenedor antes de descomprimir el payload.
+ * 1. Contenedor único en disco (`.kvlt`): incluye tanto el árbol de credenciales cifrado como
+ *    el Key Slot opcional de Llave Física FIDO2 / U2F incrustado en binario dentro de la cabecera,
+ *    sin generar archivos `.json` secundarios.
+ * 2. Cabecera binaria + Hardware Key Slot autenticados mediante AEAD Additional Authenticated Data (AAD).
+ *    Si se altera 1 solo bit de la cabecera o del Key Slot FIDO2/U2F, la verificación de etiqueta AEAD
+ *    rechaza el contenedor inmediatamente antes de descomprimir el payload.
  * 3. Cifrado AEAD seleccionable:
  *    - `chacha20-poly1305` (ID = 0x01, RFC 8439)
  *    - `aes-256-gcm`       (ID = 0x02, NIST SP 800-38D)
@@ -25,39 +26,95 @@ const { encryptChaCha20Poly1305, decryptChaCha20Poly1305 } = require('./chacha20
  * 5. Guardado transaccional atómico (`.tmp` + `fsync` + `rename`) para prevenir
  *    corrupción ante cortes de energía o cierres inesperados.
  *
- * Estructura binaria del archivo `.kvlt`:
- * - [0..3]   4 bytes : Magic ASCII "KVLT" (0x4B 0x56 0x4C 0x54)
- * - [4]      1 byte  : Versión del formato (0x01)
- * - [5]      1 byte  : ID del Cipher AEAD (0x01 = ChaCha20-Poly1305, 0x02 = AES-256-GCM)
- * - [6..9]   4 bytes : Parámetro KDF N (UInt32LE, ej. 16384)
- * - [10..11] 2 bytes : Parámetro KDF r (UInt16LE, ej. 8)
- * - [12..13] 2 bytes : Parámetro KDF p (UInt16LE, ej. 1)
- * - [14..45] 32 bytes: Salt criptográfico aleatorio (256 bits)
- * - [46..57] 12 bytes: Nonce / IV único de 96 bits para AEAD
- * - [58..73] 16 bytes: Auth Tag AEAD (Poly1305 / GCM Tag de 128 bits)
- * - [74..N]  Variable: Payload comprimido con GZip y cifrado con AEAD
+ * Estructura binaria del archivo `.kvlt` (v2 unificado):
+ * - [0..3]       4 bytes : Magic ASCII "KVLT" (0x4B 0x56 0x4C 0x54)
+ * - [4]          1 byte  : Versión del formato (0x02; rétrocompatible en lectura con 0x01)
+ * - [5]          1 byte  : ID del Cipher AEAD (0x01 = ChaCha20-Poly1305, 0x02 = AES-256-GCM)
+ * - [6..9]       4 bytes : Parámetro KDF N (UInt32LE, ej. 16384)
+ * - [10..11]     2 bytes : Parámetro KDF r (UInt16LE, ej. 8)
+ * - [12..13]     2 bytes : Parámetro KDF p (UInt16LE, ej. 1)
+ * - [14..45]     32 bytes: Salt criptográfico aleatorio (256 bits)
+ * - [46..57]     12 bytes: Nonce / IV único de 96 bits para AEAD
+ * - [58..61]     4 bytes : Longitud H del Key Slot binario FIDO2/U2F (UInt32LE; 0 si es Solo Contraseña)
+ * - [62..62+H-1] H bytes : Bloque binario comprimido del Key Slot FIDO2/U2F
+ * - [62+H..77+H] 16 bytes: Auth Tag AEAD (Poly1305 / GCM Tag de 128 bits)
+ * - [78+H..N]    Variable: Payload comprimido con GZip y cifrado con AEAD
  *
- * Total de cabecera fija: 74 bytes. Los primeros 58 bytes (0..57) se pasan como AAD al AEAD.
+ * Todos los bytes [0 .. 62+H-1] se autentican como AAD dentro del cifrado AEAD.
  */
 
 const MAGIC = Buffer.from('KVLT', 'ascii');
-const FORMAT_VERSION = 0x01;
+const FORMAT_VERSION_V1 = 0x01;
+const FORMAT_VERSION_V2 = 0x02;
 
 const CIPHERS = {
   'chacha20-poly1305': { id: 0x01, name: 'ChaCha20-Poly1305 (RFC 8439)' },
-  'aes-256-gcm': { id: 0x02, name: 'AES-256-GCM (NIST SP 800-38D)' }
+  'aes-256-gcm': { id: 0x02, name: 'AES-256-GCM (NIST SP 800-38D)' },
 };
 
 const CIPHER_BY_ID = {
   0x01: 'chacha20-poly1305',
-  0x02: 'aes-256-gcm'
+  0x02: 'aes-256-gcm',
 };
 
 const DEFAULT_KDF_PARAMS = {
-  N: 16384, // Coste CPU/Memoria (16 MB RAM por derivación)
+  N: 16384,
   r: 8,
-  p: 1
+  p: 1,
 };
+
+/**
+ * Codifica un objeto Hardware Key Slot a un bloque binario comprimido con DeflateRaw.
+ */
+function encodeHardwareSlotBinary(hwSlot) {
+  if (!hwSlot || typeof hwSlot !== 'object' || !hwSlot.credentialIdB64) {
+    return Buffer.alloc(0);
+  }
+  const rawJson = Buffer.from(JSON.stringify(hwSlot), 'utf8');
+  try {
+    return zlib.deflateRawSync(rawJson, { level: 9 });
+  } finally {
+    ProtectedMemory.zeroize(rawJson);
+  }
+}
+
+/**
+ * Decodifica un bloque binario de Hardware Key Slot desde la cabecera `.kvlt`.
+ */
+function decodeHardwareSlotBinary(slotBuf) {
+  if (!Buffer.isBuffer(slotBuf) || slotBuf.length === 0) {
+    return null;
+  }
+  const inflated = zlib.inflateRawSync(slotBuf);
+  try {
+    return JSON.parse(inflated.toString('utf8'));
+  } finally {
+    ProtectedMemory.zeroize(inflated);
+  }
+}
+
+/**
+ * Inspecciona únicamente la cabecera pública y el Key Slot FIDO2/U2F incrustado en un archivo `.kvlt`
+ * sin necesidad de descifrar el payload aún.
+ */
+function inspectVaultFileSlot(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  const buf = fs.readFileSync(filePath);
+  if (buf.length < 74 || !buf.subarray(0, 4).equals(MAGIC)) return null;
+
+  const version = buf.readUInt8(4);
+  if (version === FORMAT_VERSION_V1) {
+    return null;
+  }
+  if (version === FORMAT_VERSION_V2 && buf.length >= 78) {
+    const hwSlotLen = buf.readUInt32LE(58);
+    if (hwSlotLen > 0 && buf.length >= 62 + hwSlotLen + 16) {
+      const slotSlice = buf.subarray(62, 62 + hwSlotLen);
+      return decodeHardwareSlotBinary(slotSlice);
+    }
+  }
+  return null;
+}
 
 /**
  * Combina contraseña maestra y archivo de llave opcional en una semilla compuesta de 512 bits.
@@ -96,7 +153,7 @@ function deriveVaultKey(masterPassword, keyFilePath, salt, kdfParams = DEFAULT_K
       N: kdfParams.N,
       r: kdfParams.r,
       p: kdfParams.p,
-      maxmem
+      maxmem,
     });
   } finally {
     ProtectedMemory.zeroize(compositeMaterial);
@@ -104,7 +161,7 @@ function deriveVaultKey(masterPassword, keyFilePath, salt, kdfParams = DEFAULT_K
 }
 
 /**
- * Serializa y cifra una bóveda en el formato binario `.kvlt`.
+ * Serializa y cifra una bóveda en el formato binario unificado `.kvlt` v2.
  * @param {object} vaultObject Objeto de bóveda con grupos, entradas y metadatos
  * @param {string} masterPassword
  * @param {object} options
@@ -115,21 +172,26 @@ function serializeVaultToBuffer(vaultObject, masterPassword, options = {}) {
   const cipherId = CIPHERS[cipherName].id;
   const kdfParams = options.kdfParams || DEFAULT_KDF_PARAMS;
   const keyFilePath = options.keyFilePath || null;
+  const hwSlotBuf = encodeHardwareSlotBinary(options.hardwareSlot || null);
 
   const salt = crypto.randomBytes(32);
   const nonce = crypto.randomBytes(12);
   const derivedKey = deriveVaultKey(masterPassword, keyFilePath, salt, kdfParams);
 
-  // Construir los primeros 58 bytes de la cabecera (AAD)
-  const aadHeader = Buffer.alloc(58);
+  // Construir cabecera AAD unificada (62 bytes fijos + H bytes del Key Slot binario)
+  const aadHeader = Buffer.alloc(62 + hwSlotBuf.length);
   MAGIC.copy(aadHeader, 0); // [0..3] "KVLT"
-  aadHeader.writeUInt8(FORMAT_VERSION, 4); // [4] Version = 1
+  aadHeader.writeUInt8(FORMAT_VERSION_V2, 4); // [4] Version = 2
   aadHeader.writeUInt8(cipherId, 5); // [5] Cipher ID
   aadHeader.writeUInt32LE(kdfParams.N, 6); // [6..9] N
   aadHeader.writeUInt16LE(kdfParams.r, 10); // [10..11] r
   aadHeader.writeUInt16LE(kdfParams.p, 12); // [12..13] p
   salt.copy(aadHeader, 14); // [14..45] 32-byte salt
   nonce.copy(aadHeader, 46); // [46..57] 12-byte nonce
+  aadHeader.writeUInt32LE(hwSlotBuf.length, 58); // [58..61] Longitud H del Key Slot binario
+  if (hwSlotBuf.length > 0) {
+    hwSlotBuf.copy(aadHeader, 62); // [62..62+H-1] Key Slot binario protegido por AAD
+  }
 
   let jsonBytes = null;
   let compressedPayload = null;
@@ -159,15 +221,16 @@ function serializeVaultToBuffer(vaultObject, masterPassword, options = {}) {
 }
 
 /**
- * Lee, verifica autenticidad AEAD, descifra y descomprime un buffer `.kvlt`.
+ * Lee, verifica autenticidad AEAD (incluyendo el Key Slot binario en AAD), descifra y descomprime un buffer `.kvlt`.
+ * Soporta tanto archivos v1 como v2 unificados.
  * @param {Buffer} fileBuffer
  * @param {string} masterPassword
  * @param {string|null} keyFilePath
- * @returns {{ vault: object, headerInfo: object }}
+ * @returns {{ vault: object, headerInfo: object, hardwareSlot: object|null }}
  */
 function deserializeVaultFromBuffer(fileBuffer, masterPassword, keyFilePath = null) {
   if (!Buffer.isBuffer(fileBuffer) || fileBuffer.length < 74) {
-    throw new Error('Archivo inválido o truncado: tamaño menor a la cabecera mínima de 74 bytes.');
+    throw new Error('Archivo inválido o truncado: tamaño menor a la cabecera mínima.');
   }
 
   const magic = fileBuffer.subarray(0, 4);
@@ -176,7 +239,7 @@ function deserializeVaultFromBuffer(fileBuffer, masterPassword, keyFilePath = nu
   }
 
   const version = fileBuffer.readUInt8(4);
-  if (version !== FORMAT_VERSION) {
+  if (version !== FORMAT_VERSION_V1 && version !== FORMAT_VERSION_V2) {
     throw new Error(`Versión de formato .kvlt no soportada: v${version}.`);
   }
 
@@ -195,9 +258,27 @@ function deserializeVaultFromBuffer(fileBuffer, masterPassword, keyFilePath = nu
 
   const salt = fileBuffer.subarray(14, 46);
   const nonce = fileBuffer.subarray(46, 58);
-  const authTag = fileBuffer.subarray(58, 74);
-  const ciphertext = fileBuffer.subarray(74);
-  const aadHeader = fileBuffer.subarray(0, 58);
+
+  let aadEndOffset = 58;
+  let hardwareSlot = null;
+
+  if (version === FORMAT_VERSION_V2) {
+    if (fileBuffer.length < 78) {
+      throw new Error('Cabecera .kvlt v2 truncada.');
+    }
+    const hwSlotLen = fileBuffer.readUInt32LE(58);
+    if (hwSlotLen > 65536 || fileBuffer.length < 62 + hwSlotLen + 16) {
+      throw new Error('Longitud de Key Slot en cabecera .kvlt corrupta o manipulada.');
+    }
+    aadEndOffset = 62 + hwSlotLen;
+    if (hwSlotLen > 0) {
+      hardwareSlot = decodeHardwareSlotBinary(fileBuffer.subarray(62, aadEndOffset));
+    }
+  }
+
+  const aadHeader = fileBuffer.subarray(0, aadEndOffset);
+  const authTag = fileBuffer.subarray(aadEndOffset, aadEndOffset + 16);
+  const ciphertext = fileBuffer.subarray(aadEndOffset + 16);
 
   const derivedKey = deriveVaultKey(masterPassword, keyFilePath, salt, { N, r, p });
   let compressedPayload = null;
@@ -217,6 +298,7 @@ function deserializeVaultFromBuffer(fileBuffer, masterPassword, keyFilePath = nu
 
     return {
       vault,
+      hardwareSlot,
       headerInfo: {
         magic: 'KVLT',
         version,
@@ -226,12 +308,14 @@ function deserializeVaultFromBuffer(fileBuffer, masterPassword, keyFilePath = nu
         saltHex: salt.toString('hex').slice(0, 16) + '…',
         nonceHex: nonce.toString('hex'),
         authTagHex: authTag.toString('hex'),
-        fileBytes: fileBuffer.length
-      }
+        fileBytes: fileBuffer.length,
+      },
     };
   } catch (err) {
     if (err && /Unsupported state or unable to authenticate data/i.test(err.message)) {
-      throw new Error('Contraseña maestra incorrecta, archivo de llave inválido o bóveda alterada (Fallo de verificación AEAD).');
+      throw new Error(
+        'Contraseña maestra incorrecta, archivo de llave inválido o bóveda alterada (Fallo de verificación AEAD).'
+      );
     }
     throw err;
   } finally {
@@ -247,7 +331,7 @@ function deserializeVaultFromBuffer(fileBuffer, masterPassword, keyFilePath = nu
  */
 function saveVaultFileAtomic(filePath, vaultObject, masterPassword, options = {}) {
   const resolvedPath = path.resolve(filePath);
-  const tmpPath = `${resolvedPath}.tmp.${ process.pid }`;
+  const tmpPath = `${resolvedPath}.tmp.${process.pid}`;
   const encryptedBuffer = serializeVaultToBuffer(vaultObject, masterPassword, options);
 
   const fd = fs.openSync(tmpPath, 'w', 0o600);
@@ -259,10 +343,21 @@ function saveVaultFileAtomic(filePath, vaultObject, masterPassword, options = {}
   }
 
   fs.renameSync(tmpPath, resolvedPath);
+
+  // Limpiar cualquier archivo .hwslot.json antiguo si existiera de versiones previas
+  const legacySidecar = `${resolvedPath}.hwslot.json`;
+  if (fs.existsSync(legacySidecar)) {
+    try {
+      fs.unlinkSync(legacySidecar);
+    } catch {
+      // Ignorar si ya fue eliminado
+    }
+  }
+
   return {
     path: resolvedPath,
     bytesWritten: encryptedBuffer.length,
-    sha256: crypto.createHash('sha256').update(encryptedBuffer).digest('hex')
+    sha256: crypto.createHash('sha256').update(encryptedBuffer).digest('hex'),
   };
 }
 
@@ -282,8 +377,9 @@ function loadVaultFile(filePath, masterPassword, keyFilePath = null) {
 module.exports = {
   CIPHERS,
   DEFAULT_KDF_PARAMS,
+  inspectVaultFileSlot,
   serializeVaultToBuffer,
   deserializeVaultFromBuffer,
   saveVaultFileAtomic,
-  loadVaultFile
+  loadVaultFile,
 };

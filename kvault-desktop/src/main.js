@@ -17,8 +17,7 @@ const {
   enrollHardwareKey,
   challengeHardwareKey,
   loadHardwareSlotForVault,
-  saveHardwareSlotForVault,
-  removeHardwareSlotForVault,
+  removeLegacyHardwareSlotFile,
 } = require('./core/fido2Hardware');
 const {
   serializeVaultToBuffer,
@@ -52,6 +51,7 @@ const session = {
   entries: new Map(), // id -> { ...publicFields, _pwdEnvelope, _totpEnvelope }
   masterPasswordEnvelope: null,
   keyFilePath: null,
+  hardwareSlot: null,
   clipboardTimer: null,
   clipboardCountdownInterval: null,
   lastClipboardEnvelope: null,
@@ -68,6 +68,7 @@ function wipeSessionMemory() {
   session.meta = null;
   session.masterPasswordEnvelope = null;
   session.keyFilePath = null;
+  session.hardwareSlot = null;
   session.unlocked = false;
   session.filePath = null;
   session.dirty = false;
@@ -199,7 +200,7 @@ function getPublicState() {
     meta: session.meta,
     groups: session.groups,
     entries: publicEntries,
-    hardwareSlot: session.filePath ? getPublicHardwareSlotInfo(session.filePath) : null,
+    hardwareSlot: formatPublicHardwareSlot(session.hardwareSlot),
     audit: {
       totalEntries: publicEntries.length,
       weakCount,
@@ -215,9 +216,8 @@ function getPublicState() {
   };
 }
 
-function getPublicHardwareSlotInfo(vaultFilePath) {
-  const slot = loadHardwareSlotForVault(vaultFilePath);
-  if (!slot) {
+function formatPublicHardwareSlot(slot) {
+  if (!slot || !slot.credentialIdB64) {
     return { enabled: false, authMode: 'password_only' };
   }
   return {
@@ -228,6 +228,11 @@ function getPublicHardwareSlotInfo(vaultFilePath) {
     credentialIdPreview: `${String(slot.credentialIdB64 || '').slice(0, 18)}…`,
     enrolledAt: slot.enrolledAt,
   };
+}
+
+function getPublicHardwareSlotInfo(vaultFilePath) {
+  const slot = loadHardwareSlotForVault(vaultFilePath);
+  return formatPublicHardwareSlot(slot);
 }
 
 /**
@@ -436,6 +441,7 @@ ipcMain.handle('vault:create', async (_evt, opts) => {
 
   session.masterPasswordEnvelope = memoryGuard.protectString(effectiveVaultPassword);
   session.keyFilePath = keyFilePath || null;
+  session.hardwareSlot = pendingHwSlot || null;
   session.cipherId = Number(cipherId) === 2 ? 2 : 1;
   session.cipherName = session.cipherId === 2 ? 'aes-256-gcm' : 'chacha20-poly1305';
   session.filePath = targetFilePath;
@@ -507,10 +513,8 @@ ipcMain.handle('vault:create', async (_evt, opts) => {
     saveVaultFileAtomic(session.filePath, payload, pwdPlain, {
       cipher: session.cipherName,
       keyFilePath: session.keyFilePath,
+      hardwareSlot: session.hardwareSlot,
     });
-    if (pendingHwSlot) {
-      saveHardwareSlotForVault(session.filePath, pendingHwSlot);
-    }
     session.dirty = false;
   }
 
@@ -545,6 +549,7 @@ ipcMain.handle('vault:open', async (_evt, opts) => {
   session.masterPasswordEnvelope = memoryGuard.protectString(effectivePassword);
   session.keyFilePath = keyFilePath;
   session.filePath = filePath;
+  session.hardwareSlot = decoded.hardwareSlot || hwSlot || null;
   session.cipherName = decoded.headerInfo.cipher;
   session.cipherId = session.cipherName === 'aes-256-gcm' ? 2 : 1;
   session.meta = decoded.vault.meta || { name: path.basename(filePath, '.kvlt') };
@@ -552,6 +557,16 @@ ipcMain.handle('vault:open', async (_evt, opts) => {
   hydrateEntriesIntoProtectedMemory(decoded.vault.entries || []);
   session.unlocked = true;
   session.dirty = false;
+
+  // Si provenía de un archivo .hwslot.json antiguo separado, consolidarlo dentro del binario .kvlt automáticamente
+  if (!decoded.hardwareSlot && hwSlot) {
+    const payload = exportVaultPayloadForDisk();
+    saveVaultFileAtomic(filePath, payload, effectivePassword, {
+      cipher: session.cipherName,
+      keyFilePath: session.keyFilePath,
+      hardwareSlot: hwSlot,
+    });
+  }
 
   return getPublicState();
 });
@@ -579,6 +594,7 @@ ipcMain.handle('vault:open-hardware', async (_evt, opts) => {
   session.masterPasswordEnvelope = memoryGuard.protectString(effectivePassword);
   session.keyFilePath = keyFilePath;
   session.filePath = filePath;
+  session.hardwareSlot = decoded.hardwareSlot || hwSlot || null;
   session.cipherName = decoded.headerInfo.cipher;
   session.cipherId = session.cipherName === 'aes-256-gcm' ? 2 : 1;
   session.meta = decoded.vault.meta || { name: path.basename(filePath, '.kvlt') };
@@ -586,6 +602,16 @@ ipcMain.handle('vault:open-hardware', async (_evt, opts) => {
   hydrateEntriesIntoProtectedMemory(decoded.vault.entries || []);
   session.unlocked = true;
   session.dirty = false;
+
+  // Si provenía de un archivo .hwslot.json antiguo separado, consolidarlo dentro del binario .kvlt automáticamente
+  if (!decoded.hardwareSlot && hwSlot) {
+    const payload = exportVaultPayloadForDisk();
+    saveVaultFileAtomic(filePath, payload, effectivePassword, {
+      cipher: session.cipherName,
+      keyFilePath: session.keyFilePath,
+      hardwareSlot: hwSlot,
+    });
+  }
 
   return getPublicState();
 });
@@ -609,13 +635,15 @@ ipcMain.handle('hardware:configure', async (_evt, { authMode, deviceLabel, curre
     if (currentMasterPassword && currentMasterPassword.length >= 4) {
       session.masterPasswordEnvelope = memoryGuard.protectString(currentMasterPassword);
     }
+    session.hardwareSlot = null;
     const payload = exportVaultPayloadForDisk();
     const pwdPlain = memoryGuard.unprotectToString(session.masterPasswordEnvelope);
     saveVaultFileAtomic(session.filePath, payload, pwdPlain, {
       cipher: session.cipherName,
       keyFilePath: session.keyFilePath,
+      hardwareSlot: null,
     });
-    removeHardwareSlotForVault(session.filePath);
+    removeLegacyHardwareSlotFile(session.filePath);
     session.dirty = false;
     return getPublicState();
   }
@@ -632,12 +660,19 @@ ipcMain.handle('hardware:configure', async (_evt, { authMode, deviceLabel, curre
       enrolled.credentialIdB64,
       enrolled.publicKeySpkiB64
     );
-    saveHardwareSlotForVault(session.filePath, {
+    session.hardwareSlot = {
       version: 1,
       authMode: 'hardware_passwordless',
       ...enrolled,
       wrappedSecretB64,
+    };
+    const payload = exportVaultPayloadForDisk();
+    saveVaultFileAtomic(session.filePath, payload, currentEffectivePwd, {
+      cipher: session.cipherName,
+      keyFilePath: session.keyFilePath,
+      hardwareSlot: session.hardwareSlot,
     });
+    session.dirty = false;
   } else if (authMode === 'hardware_2fa') {
     if (!currentMasterPassword || currentMasterPassword.length < 4) {
       throw new Error('Ingrese su contraseña maestra para vincularla en modo Doble Factor (2FA).');
@@ -646,22 +681,23 @@ ipcMain.handle('hardware:configure', async (_evt, { authMode, deviceLabel, curre
     const newEffectivePwd = combinePasswordAndHardwareFactor(currentMasterPassword, hwFactorHex);
     session.masterPasswordEnvelope = memoryGuard.protectString(newEffectivePwd);
 
-    const payload = exportVaultPayloadForDisk();
-    saveVaultFileAtomic(session.filePath, payload, newEffectivePwd, {
-      cipher: session.cipherName,
-      keyFilePath: session.keyFilePath,
-    });
-
     const wrappedSecretB64 = await wrapSecretForHardwareSlot(
       hwFactorHex,
       enrolled.credentialIdB64,
       enrolled.publicKeySpkiB64
     );
-    saveHardwareSlotForVault(session.filePath, {
+    session.hardwareSlot = {
       version: 1,
       authMode: 'hardware_2fa',
       ...enrolled,
       wrappedSecretB64,
+    };
+
+    const payload = exportVaultPayloadForDisk();
+    saveVaultFileAtomic(session.filePath, payload, newEffectivePwd, {
+      cipher: session.cipherName,
+      keyFilePath: session.keyFilePath,
+      hardwareSlot: session.hardwareSlot,
     });
     session.dirty = false;
   }
@@ -673,11 +709,18 @@ ipcMain.handle('hardware:remove', () => {
   if (!session.unlocked || !session.filePath) {
     throw new Error('No hay bóveda activa con archivo asociado.');
   }
-  const existingSlot = loadHardwareSlotForVault(session.filePath);
+  const existingSlot = session.hardwareSlot || loadHardwareSlotForVault(session.filePath);
   if (existingSlot && existingSlot.authMode === 'hardware_2fa') {
     throw new Error('Para pasar de Doble Factor (2FA) a Solo Contraseña, use la opción "Solo Contraseña" en el modal de Llave Física e ingrese su contraseña maestra.');
   }
-  removeHardwareSlotForVault(session.filePath);
+  session.hardwareSlot = null;
+  const payload = exportVaultPayloadForDisk();
+  const pwdPlain = memoryGuard.unprotectToString(session.masterPasswordEnvelope);
+  saveVaultFileAtomic(session.filePath, payload, pwdPlain, {
+    cipher: session.cipherName,
+    keyFilePath: session.keyFilePath,
+    hardwareSlot: null,
+  });
   return getPublicState();
 });
 
@@ -703,6 +746,7 @@ ipcMain.handle('vault:save', async () => {
   saveVaultFileAtomic(targetPath, payload, pwdPlain, {
     cipher: session.cipherName,
     keyFilePath: session.keyFilePath,
+    hardwareSlot: session.hardwareSlot,
   });
   session.dirty = false;
 

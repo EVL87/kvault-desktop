@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { ProtectedMemory } = require('./protectedMemory');
 const { encryptChaCha20Poly1305, decryptChaCha20Poly1305 } = require('./chacha20poly1305');
+const { inspectVaultFileSlot } = require('./vaultFormat');
 
 const PS_WEBAUTHN_PATH = path.join(__dirname, 'win32WebAuthn.ps1');
 const RP_ID = 'kvault.local';
@@ -344,28 +345,39 @@ function getHardwareSlotPath(vaultFilePath) {
   return `${path.resolve(vaultFilePath)}.hwslot.json`;
 }
 
+/**
+ * Carga el Hardware Key Slot incrustado en binario dentro del propio archivo `.kvlt`.
+ * Si encuentra un archivo `.hwslot.json` heredado junto al `.kvlt`, lo lee como respaldo para migración automática.
+ */
 function loadHardwareSlotForVault(vaultFilePath) {
-  const slotPath = getHardwareSlotPath(vaultFilePath);
-  if (!slotPath || !fs.existsSync(slotPath)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(slotPath, 'utf8'));
-  } catch {
-    return null;
+  if (!vaultFilePath || !fs.existsSync(vaultFilePath)) return null;
+
+  const embeddedSlot = inspectVaultFileSlot(vaultFilePath);
+  if (embeddedSlot) {
+    return embeddedSlot;
   }
+
+  // Respaldo de migración automática si existe un archivo .hwslot.json previo
+  const legacySlotPath = getHardwareSlotPath(vaultFilePath);
+  if (legacySlotPath && fs.existsSync(legacySlotPath)) {
+    try {
+      return JSON.parse(fs.readFileSync(legacySlotPath, 'utf8'));
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
-function saveHardwareSlotForVault(vaultFilePath, slotData) {
-  const slotPath = getHardwareSlotPath(vaultFilePath);
-  if (!slotPath) return null;
-  fs.writeFileSync(slotPath, JSON.stringify(slotData, null, 2), 'utf8');
-  return slotPath;
-}
-
-function removeHardwareSlotForVault(vaultFilePath) {
+function removeLegacyHardwareSlotFile(vaultFilePath) {
   const slotPath = getHardwareSlotPath(vaultFilePath);
   if (slotPath && fs.existsSync(slotPath)) {
-    fs.unlinkSync(slotPath);
-    return true;
+    try {
+      fs.unlinkSync(slotPath);
+      return true;
+    } catch {
+      return false;
+    }
   }
   return false;
 }
@@ -379,8 +391,6 @@ module.exports = {
   combinePasswordAndHardwareFactor,
   enrollHardwareKey,
   challengeHardwareKey,
-  getHardwareSlotPath,
   loadHardwareSlotForVault,
-  saveHardwareSlotForVault,
-  removeHardwareSlotForVault,
+  removeLegacyHardwareSlotFile,
 };
