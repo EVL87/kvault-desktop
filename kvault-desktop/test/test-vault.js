@@ -19,6 +19,15 @@ const {
 } = require('../src/core/totp');
 const { importKeePassFile } = require('../src/importer/keepassImporter');
 const { escapeForSendKeys } = require('../src/core/autoType');
+const {
+  RP_ID,
+  parseCoseP256PublicKeyFromAuthData,
+  verifyHardwareAssertionSignature,
+  wrapSecretForHardwareSlot,
+  unwrapSecretFromHardwareSlot,
+  combinePasswordAndHardwareFactor,
+} = require('../src/core/fido2Hardware');
+const crypto = require('node:crypto');
 
 console.log('======================================================================');
 console.log(' KVAULT DESKTOP — SUITE DE VERIFICACIÓN CRIPTOGRÁFICA Y DE MEMORIA');
@@ -128,9 +137,74 @@ console.log('===================================================================
   const complexPwd = 'P+a^s%s~w(o)r{d}[1]!';
   const escaped = escapeForSendKeys(complexPwd);
   assert.equal(escaped, 'P{+}a{^}s{%}s{~}w{(}o{)}r{{}d{}}{[}1{]}!');
-  console.log(`[OK] 5/5 Importador KeePass 2.x & Auto-Type Escape: ${imported.entries.length} entradas, ${imported.groups.length} grupos y escape SendKeys verificados.`);
+  console.log(`[OK] 5/6 Importador XML/CSV & Auto-Type Escape: ${imported.entries.length} entradas, ${imported.groups.length} grupos y escape SendKeys verificados.`);
 }
 
-console.log('======================================================================');
-console.log(' TODAS LAS PRUEBAS PASARON EXITOSAMENTE');
-console.log('======================================================================');
+// 7. Prueba de Criptografía FIDO2 / U2F (COSE P-256, Firma ECDSA de Llave Física y Key Slot Wrapping)
+(async () => {
+  // Simular par de llaves ECDSA P-256 generado dentro de una Yubico Security Key C NFC o Flipper Zero U2F
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const jwk = publicKey.export({ format: 'jwk' });
+  const xBytes = Buffer.from(jwk.x, 'base64url');
+  const yBytes = Buffer.from(jwk.y, 'base64url');
+
+  // Construir bloque AuthenticatorData sintético con COSE_Key P-256
+  const rpIdHash = crypto.createHash('sha256').update(RP_ID, 'utf8').digest();
+  const flags = Buffer.from([0x41]); // UP (0x01) + AT (0x40)
+  const signCount = Buffer.from([0x00, 0x00, 0x00, 0x01]);
+  const aaguid = Buffer.alloc(16, 0); // 0x00...00 = FIDO U2F (Flipper Zero / Security Key)
+  const credId = crypto.randomBytes(32);
+  const credIdLen = Buffer.from([0x00, 0x20]);
+  const coseKey = Buffer.concat([
+    Buffer.from([0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01]),
+    Buffer.from([0x21, 0x58, 0x20]),
+    xBytes,
+    Buffer.from([0x22, 0x58, 0x20]),
+    yBytes,
+  ]);
+
+  const makeCredAuthData = Buffer.concat([rpIdHash, flags, signCount, aaguid, credIdLen, credId, coseKey]);
+  const parsedCose = parseCoseP256PublicKeyFromAuthData(makeCredAuthData);
+  assert.ok(parsedCose.publicKeySpkiB64.length > 40);
+
+  // Simular GetAssertion firmado por el hardware (Flipper U2F / Yubico Security Key)
+  const assertionAuthData = Buffer.concat([rpIdHash, Buffer.from([0x01]), Buffer.from([0x00, 0x00, 0x00, 0x02])]);
+  const clientDataJson = JSON.stringify({
+    type: 'webauthn.get',
+    challenge: crypto.randomBytes(32).toString('base64url'),
+    origin: `https://${RP_ID}`,
+    crossOrigin: false,
+  });
+  const clientDataHash = crypto.createHash('sha256').update(clientDataJson, 'utf8').digest();
+  const signature = crypto.sign('sha256', Buffer.concat([assertionAuthData, clientDataHash]), privateKey);
+
+  const verified = verifyHardwareAssertionSignature({
+    publicKeySpkiB64: parsedCose.publicKeySpkiB64,
+    authDataBuf: assertionAuthData,
+    clientDataJson,
+    signatureBuf: signature,
+  });
+  assert.equal(verified.verified, true);
+  assert.equal(verified.signCount, 2);
+
+  // Verificar envoltura DPAPI + ChaCha20-Poly1305 del Key Slot
+  const wrapped = await wrapSecretForHardwareSlot(
+    'VaultSecret_FIDO2_2026',
+    credId.toString('base64'),
+    parsedCose.publicKeySpkiB64
+  );
+  const unwrapped = await unwrapSecretFromHardwareSlot(
+    wrapped,
+    credId.toString('base64'),
+    parsedCose.publicKeySpkiB64
+  );
+  assert.equal(unwrapped, 'VaultSecret_FIDO2_2026');
+
+  const combined = combinePasswordAndHardwareFactor('Pass1234', crypto.randomBytes(32).toString('hex'));
+  assert.equal(combined.length, 64);
+
+  console.log('[OK] 6/6 Llaves Físicas FIDO2 / U2F: Parser COSE P-256, firma ECDSA de hardware y Key Slot DPAPI verificados.');
+  console.log('======================================================================');
+  console.log(' TODAS LAS PRUEBAS PASARON EXITOSAMENTE');
+  console.log('======================================================================');
+})();

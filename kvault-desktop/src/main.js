@@ -12,6 +12,15 @@ const {
   wipeSecureClipboard,
 } = require('./core/autoType');
 const {
+  wrapSecretForHardwareSlot,
+  combinePasswordAndHardwareFactor,
+  enrollHardwareKey,
+  challengeHardwareKey,
+  loadHardwareSlotForVault,
+  saveHardwareSlotForVault,
+  removeHardwareSlotForVault,
+} = require('./core/fido2Hardware');
+const {
   serializeVaultToBuffer,
   deserializeVaultFromBuffer,
   saveVaultFileAtomic,
@@ -190,6 +199,7 @@ function getPublicState() {
     meta: session.meta,
     groups: session.groups,
     entries: publicEntries,
+    hardwareSlot: session.filePath ? getPublicHardwareSlotInfo(session.filePath) : null,
     audit: {
       totalEntries: publicEntries.length,
       weakCount,
@@ -202,6 +212,21 @@ function getPublicState() {
       sandbox: true,
       protectedMemoryEngine: 'ChaCha20-Poly1305 (Ephemeral 256-bit Key)',
     },
+  };
+}
+
+function getPublicHardwareSlotInfo(vaultFilePath) {
+  const slot = loadHardwareSlotForVault(vaultFilePath);
+  if (!slot) {
+    return { enabled: false, authMode: 'password_only' };
+  }
+  return {
+    enabled: true,
+    authMode: slot.authMode,
+    deviceLabel: slot.deviceLabel,
+    protocolHint: slot.protocolHint,
+    credentialIdPreview: `${String(slot.credentialIdB64 || '').slice(0, 18)}…`,
+    enrolledAt: slot.enrolledAt,
   };
 }
 
@@ -337,18 +362,83 @@ ipcMain.handle('dialog:pick-save-file', async (_evt, opts = {}) => {
 });
 
 ipcMain.handle('vault:create', async (_evt, opts) => {
-  const { name, masterPassword, cipherId = 1, filePath = null, keyFilePath = null, seedSample = true } = opts || {};
+  const {
+    name,
+    masterPassword,
+    cipherId = 1,
+    filePath = null,
+    keyFilePath = null,
+    seedSample = true,
+    authMode = 'password_only',
+    deviceLabel = 'Yubico Security Key / Flipper U2F',
+  } = opts || {};
+
   if (!masterPassword || masterPassword.length < 4) {
-    throw new Error('La contraseña maestra debe tener al menos 4 caracteres.');
+    throw new Error('Ingrese una contraseña maestra (mínimo 4 caracteres; servirá como clave principal o de respaldo).');
+  }
+
+  let targetFilePath = filePath || null;
+  if (authMode !== 'password_only' && !targetFilePath) {
+    const picked = await dialog.showSaveDialog(mainWindow, {
+      title: 'Guardar bóveda KVault (.kvlt) para vincular Llave Física FIDO2/U2F',
+      defaultPath: `${name || 'boveda_fido'}.kvlt`,
+      filters: [{ name: 'KVault AEAD Container (.kvlt)', extensions: ['kvlt'] }],
+    });
+    if (picked.canceled || !picked.filePath) {
+      throw new Error('Para vincular una llave física FIDO2/U2F es necesario elegir dónde guardar el archivo .kvlt.');
+    }
+    targetFilePath = picked.filePath;
+  }
+
+  let effectiveVaultPassword = masterPassword;
+  let pendingHwSlot = null;
+
+  if (authMode === 'hardware_passwordless' || authMode === 'hardware_2fa') {
+    const enrolled = await enrollHardwareKey({
+      vaultName: name || 'KVault',
+      deviceLabel,
+    });
+
+    if (authMode === 'hardware_passwordless') {
+      // En modo Passwordless, la contraseña maestra del archivo se envuelve dentro del Key Slot de la llave física,
+      // de modo que el usuario puede abrir la bóveda tocando su llave física O escribiendo su contraseña de respaldo.
+      const wrappedSecretB64 = await wrapSecretForHardwareSlot(
+        masterPassword,
+        enrolled.credentialIdB64,
+        enrolled.publicKeySpkiB64
+      );
+      pendingHwSlot = {
+        version: 1,
+        authMode: 'hardware_passwordless',
+        ...enrolled,
+        wrappedSecretB64,
+      };
+    } else if (authMode === 'hardware_2fa') {
+      // En modo Doble Factor (2FA), se genera un factor criptográfico aleatorio de 256 bits que vive en el Key Slot
+      // y se combina por HMAC-SHA256 con la contraseña maestra para cifrar el contenedor .kvlt.
+      const hwFactorHex = crypto.randomBytes(32).toString('hex');
+      effectiveVaultPassword = combinePasswordAndHardwareFactor(masterPassword, hwFactorHex);
+      const wrappedSecretB64 = await wrapSecretForHardwareSlot(
+        hwFactorHex,
+        enrolled.credentialIdB64,
+        enrolled.publicKeySpkiB64
+      );
+      pendingHwSlot = {
+        version: 1,
+        authMode: 'hardware_2fa',
+        ...enrolled,
+        wrappedSecretB64,
+      };
+    }
   }
 
   wipeSessionMemory();
 
-  session.masterPasswordEnvelope = memoryGuard.protectString(masterPassword);
+  session.masterPasswordEnvelope = memoryGuard.protectString(effectiveVaultPassword);
   session.keyFilePath = keyFilePath || null;
   session.cipherId = Number(cipherId) === 2 ? 2 : 1;
   session.cipherName = session.cipherId === 2 ? 'aes-256-gcm' : 'chacha20-poly1305';
-  session.filePath = filePath || null;
+  session.filePath = targetFilePath;
 
   const rootGroupId = 'g-root';
   const infraGroupId = 'g-infra';
@@ -418,10 +508,18 @@ ipcMain.handle('vault:create', async (_evt, opts) => {
       cipher: session.cipherName,
       keyFilePath: session.keyFilePath,
     });
+    if (pendingHwSlot) {
+      saveHardwareSlotForVault(session.filePath, pendingHwSlot);
+    }
     session.dirty = false;
   }
 
   return getPublicState();
+});
+
+ipcMain.handle('hardware:inspect-slot', (_evt, { filePath }) => {
+  if (!filePath) return { enabled: false, authMode: 'password_only' };
+  return getPublicHardwareSlotInfo(filePath);
 });
 
 ipcMain.handle('vault:open', async (_evt, opts) => {
@@ -433,10 +531,18 @@ ipcMain.handle('vault:open', async (_evt, opts) => {
     throw new Error('Ingrese la contraseña maestra para descifrar la bóveda.');
   }
 
-  const decoded = loadVaultFile(filePath, masterPassword, keyFilePath);
+  const hwSlot = loadHardwareSlotForVault(filePath);
+  let effectivePassword = masterPassword;
+
+  if (hwSlot && hwSlot.authMode === 'hardware_2fa') {
+    const hwChallenge = await challengeHardwareKey(hwSlot);
+    effectivePassword = combinePasswordAndHardwareFactor(masterPassword, hwChallenge.slotSecret);
+  }
+
+  const decoded = loadVaultFile(filePath, effectivePassword, keyFilePath);
 
   wipeSessionMemory();
-  session.masterPasswordEnvelope = memoryGuard.protectString(masterPassword);
+  session.masterPasswordEnvelope = memoryGuard.protectString(effectivePassword);
   session.keyFilePath = keyFilePath;
   session.filePath = filePath;
   session.cipherName = decoded.headerInfo.cipher;
@@ -447,6 +553,131 @@ ipcMain.handle('vault:open', async (_evt, opts) => {
   session.unlocked = true;
   session.dirty = false;
 
+  return getPublicState();
+});
+
+ipcMain.handle('vault:open-hardware', async (_evt, opts) => {
+  const { filePath, keyFilePath = null } = opts || {};
+  if (!filePath || !fs.existsSync(filePath)) {
+    throw new Error('Seleccione primero un archivo de bóveda (.kvlt) válido.');
+  }
+
+  const hwSlot = loadHardwareSlotForVault(filePath);
+  if (!hwSlot) {
+    throw new Error('Esta bóveda no tiene una llave física FIDO2/U2F vinculada.');
+  }
+  if (hwSlot.authMode === 'hardware_2fa') {
+    throw new Error('Esta bóveda está en modo Doble Factor (2FA): ingrese su contraseña maestra y luego toque su llave física.');
+  }
+
+  const hwChallenge = await challengeHardwareKey(hwSlot);
+  const effectivePassword = hwChallenge.slotSecret;
+
+  const decoded = loadVaultFile(filePath, effectivePassword, keyFilePath);
+
+  wipeSessionMemory();
+  session.masterPasswordEnvelope = memoryGuard.protectString(effectivePassword);
+  session.keyFilePath = keyFilePath;
+  session.filePath = filePath;
+  session.cipherName = decoded.headerInfo.cipher;
+  session.cipherId = session.cipherName === 'aes-256-gcm' ? 2 : 1;
+  session.meta = decoded.vault.meta || { name: path.basename(filePath, '.kvlt') };
+  session.groups = Array.isArray(decoded.vault.groups) ? decoded.vault.groups : [];
+  hydrateEntriesIntoProtectedMemory(decoded.vault.entries || []);
+  session.unlocked = true;
+  session.dirty = false;
+
+  return getPublicState();
+});
+
+ipcMain.handle('hardware:configure', async (_evt, { authMode, deviceLabel, currentMasterPassword }) => {
+  if (!session.unlocked) throw new Error('Desbloquee la bóveda antes de configurar llaves físicas.');
+
+  if (!session.filePath) {
+    const picked = await dialog.showSaveDialog(mainWindow, {
+      title: 'Guardar bóveda KVault (.kvlt) antes de vincular llave física',
+      defaultPath: `${(session.meta && session.meta.name) || 'boveda'}.kvlt`,
+      filters: [{ name: 'KVault AEAD Container (.kvlt)', extensions: ['kvlt'] }],
+    });
+    if (picked.canceled || !picked.filePath) {
+      throw new Error('Debe guardar la bóveda en disco para vincular una llave física.');
+    }
+    session.filePath = picked.filePath;
+  }
+
+  if (authMode === 'password_only') {
+    if (currentMasterPassword && currentMasterPassword.length >= 4) {
+      session.masterPasswordEnvelope = memoryGuard.protectString(currentMasterPassword);
+    }
+    const payload = exportVaultPayloadForDisk();
+    const pwdPlain = memoryGuard.unprotectToString(session.masterPasswordEnvelope);
+    saveVaultFileAtomic(session.filePath, payload, pwdPlain, {
+      cipher: session.cipherName,
+      keyFilePath: session.keyFilePath,
+    });
+    removeHardwareSlotForVault(session.filePath);
+    session.dirty = false;
+    return getPublicState();
+  }
+
+  const enrolled = await enrollHardwareKey({
+    vaultName: session.meta?.name || 'KVault',
+    deviceLabel: deviceLabel || 'Yubico Security Key / Flipper U2F',
+  });
+
+  if (authMode === 'hardware_passwordless') {
+    const currentEffectivePwd = memoryGuard.unprotectToString(session.masterPasswordEnvelope);
+    const wrappedSecretB64 = await wrapSecretForHardwareSlot(
+      currentEffectivePwd,
+      enrolled.credentialIdB64,
+      enrolled.publicKeySpkiB64
+    );
+    saveHardwareSlotForVault(session.filePath, {
+      version: 1,
+      authMode: 'hardware_passwordless',
+      ...enrolled,
+      wrappedSecretB64,
+    });
+  } else if (authMode === 'hardware_2fa') {
+    if (!currentMasterPassword || currentMasterPassword.length < 4) {
+      throw new Error('Ingrese su contraseña maestra para vincularla en modo Doble Factor (2FA).');
+    }
+    const hwFactorHex = crypto.randomBytes(32).toString('hex');
+    const newEffectivePwd = combinePasswordAndHardwareFactor(currentMasterPassword, hwFactorHex);
+    session.masterPasswordEnvelope = memoryGuard.protectString(newEffectivePwd);
+
+    const payload = exportVaultPayloadForDisk();
+    saveVaultFileAtomic(session.filePath, payload, newEffectivePwd, {
+      cipher: session.cipherName,
+      keyFilePath: session.keyFilePath,
+    });
+
+    const wrappedSecretB64 = await wrapSecretForHardwareSlot(
+      hwFactorHex,
+      enrolled.credentialIdB64,
+      enrolled.publicKeySpkiB64
+    );
+    saveHardwareSlotForVault(session.filePath, {
+      version: 1,
+      authMode: 'hardware_2fa',
+      ...enrolled,
+      wrappedSecretB64,
+    });
+    session.dirty = false;
+  }
+
+  return getPublicState();
+});
+
+ipcMain.handle('hardware:remove', () => {
+  if (!session.unlocked || !session.filePath) {
+    throw new Error('No hay bóveda activa con archivo asociado.');
+  }
+  const existingSlot = loadHardwareSlotForVault(session.filePath);
+  if (existingSlot && existingSlot.authMode === 'hardware_2fa') {
+    throw new Error('Para pasar de Doble Factor (2FA) a Solo Contraseña, use la opción "Solo Contraseña" en el modal de Llave Física e ingrese su contraseña maestra.');
+  }
+  removeHardwareSlotForVault(session.filePath);
   return getPublicState();
 });
 

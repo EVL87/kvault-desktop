@@ -85,6 +85,14 @@
   const genLengthRange = document.getElementById('genLengthRange');
   const genLengthLabel = document.getElementById('genLengthLabel');
 
+  const hardwareModal = document.getElementById('hardwareModal');
+  const hardwareForm = document.getElementById('hardwareForm');
+  const hwStatusBadge = document.getElementById('hwStatusBadge');
+  const hwStatusDetails = document.getElementById('hwStatusDetails');
+  const hwAuthModeSelect = document.getElementById('hwAuthModeSelect');
+  const hwDeviceLabelInput = document.getElementById('hwDeviceLabelInput');
+  const hwCurrentPwdInput = document.getElementById('hwCurrentPwdInput');
+
   function showToast(msg) {
     if (appState.toastTimer) clearTimeout(appState.toastTimer);
     actionToast.textContent = msg;
@@ -108,6 +116,7 @@
     appState.unlocked = Boolean(state.unlocked);
     appState.groups = state.groups || [];
     appState.entries = state.entries || [];
+    appState.hardwareSlot = state.hardwareSlot || { enabled: false, authMode: 'password_only' };
 
     if (!appState.unlocked) {
       stopTotpLoop();
@@ -526,12 +535,52 @@
     if (filePath) document.getElementById('createFilePathInput').value = filePath;
   });
 
+  async function refreshOpenHardwareSlotBanner(filePath) {
+    const banner = document.getElementById('openHardwareBanner');
+    const titleEl = document.getElementById('openHwBannerTitle');
+    const protoEl = document.getElementById('openHwBannerProto');
+    const descEl = document.getElementById('openHwBannerDesc');
+    const btnHw = document.getElementById('btnOpenWithHardwareKey');
+
+    if (!filePath) {
+      banner.classList.add('hidden');
+      return;
+    }
+
+    const slotInfo = await api.inspectHardwareSlot(filePath);
+    if (!slotInfo || !slotInfo.enabled) {
+      banner.classList.add('hidden');
+      btnHw.disabled = true;
+      return;
+    }
+
+    banner.classList.remove('hidden');
+    protoEl.textContent = slotInfo.protocolHint || 'FIDO2 / U2F';
+
+    if (slotInfo.authMode === 'hardware_passwordless') {
+      titleEl.textContent = 'MODO LLAVE FÍSICA (DESBLOQUEO 1-TOQUE)';
+      descEl.textContent = `Dispositivo: ${slotInfo.deviceLabel} | ID: ${slotInfo.credentialIdPreview} — Haga clic en "Desbloquear con Llave Física" o use su contraseña de respaldo.`;
+      btnHw.disabled = false;
+    } else if (slotInfo.authMode === 'hardware_2fa') {
+      titleEl.textContent = 'MODO DOBLE FACTOR ESTRICTO (CONTRASEÑA + LLAVE FÍSICA)';
+      descEl.textContent = `Dispositivo: ${slotInfo.deviceLabel} | ID: ${slotInfo.credentialIdPreview} — Ingrese su contraseña maestra y presione "Verificar AAD y Descifrar" para tocar su llave física.`;
+      btnHw.disabled = true;
+    }
+  }
+
   document.getElementById('pickOpenPathBtn').addEventListener('click', async () => {
     const filePath = await api.pickFile({
       title: 'Abrir bóveda KVault (.kvlt)',
       filters: [{ name: 'KVault (.kvlt)', extensions: ['kvlt'] }],
     });
-    if (filePath) document.getElementById('openFilePathInput').value = filePath;
+    if (filePath) {
+      document.getElementById('openFilePathInput').value = filePath;
+      await refreshOpenHardwareSlotBanner(filePath);
+    }
+  });
+
+  document.getElementById('openFilePathInput').addEventListener('change', async (e) => {
+    await refreshOpenHardwareSlotBanner(e.target.value.trim());
   });
 
   document.getElementById('pickOpenKeyFileBtn').addEventListener('click', async () => {
@@ -543,12 +592,14 @@
     e.preventDefault();
     showError(null);
     try {
+      const authMode = document.getElementById('createAuthModeSelect').value;
       const state = await api.createVault({
         name: document.getElementById('createNameInput').value.trim(),
         cipherId: Number(document.getElementById('createCipherSelect').value),
         masterPassword: document.getElementById('createMasterPwd').value,
         filePath: document.getElementById('createFilePathInput').value || null,
         seedSample: document.getElementById('seedSampleCheckbox').checked,
+        authMode,
       });
       document.getElementById('createMasterPwd').value = '';
       applyState(state);
@@ -568,6 +619,20 @@
       });
       document.getElementById('openMasterPwd').value = '';
       applyState(state);
+    } catch (err) {
+      showError(err.message);
+    }
+  });
+
+  document.getElementById('btnOpenWithHardwareKey').addEventListener('click', async () => {
+    showError(null);
+    try {
+      const filePath = document.getElementById('openFilePathInput').value.trim();
+      const keyFilePath = document.getElementById('openKeyFileInput').value || null;
+      const state = await api.openVaultWithHardwareKey({ filePath, keyFilePath });
+      document.getElementById('openMasterPwd').value = '';
+      applyState(state);
+      showToast('Bóveda desbloqueada con Llave Física FIDO2 / U2F');
     } catch (err) {
       showError(err.message);
     }
@@ -746,6 +811,58 @@
   document.getElementById('btnCloseGenModal2').addEventListener('click', () => generatorModal.classList.add('hidden'));
 
   // ==========================================================================
+  // MODAL CONFIGURACIÓN DE LLAVE FÍSICA (FIDO2 / FLIPPER ZERO U2F)
+  // ==========================================================================
+
+  function openHardwareModal() {
+    const hw = appState.hardwareSlot || { enabled: false, authMode: 'password_only' };
+    hwCurrentPwdInput.value = '';
+    if (hw.enabled) {
+      hwStatusBadge.className = 'badge badge-ok';
+      hwStatusBadge.textContent =
+        hw.authMode === 'hardware_2fa' ? 'Doble Factor 2FA Activo' : 'Passwordless 1-Toque Activo';
+      hwStatusDetails.textContent = `Dispositivo: ${hw.deviceLabel} | Protocolo: ${hw.protocolHint} | Credencial: ${hw.credentialIdPreview}`;
+      hwAuthModeSelect.value = hw.authMode;
+    } else {
+      hwStatusBadge.className = 'badge';
+      hwStatusBadge.textContent = 'Solo Contraseña';
+      hwStatusDetails.textContent = 'Sin llave física vinculada. La bóveda se abre únicamente con Contraseña Maestra.';
+      hwAuthModeSelect.value = 'hardware_passwordless';
+    }
+    hardwareModal.classList.remove('hidden');
+  }
+
+  document.getElementById('btnOpenHardwareModal').addEventListener('click', openHardwareModal);
+  const closeHwModal = () => hardwareModal.classList.add('hidden');
+  document.getElementById('btnCloseHwModal').addEventListener('click', closeHwModal);
+  document.getElementById('btnCancelHwModal').addEventListener('click', closeHwModal);
+
+  hardwareForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const authMode = hwAuthModeSelect.value;
+      const deviceLabel = hwDeviceLabelInput.value.trim();
+      const currentMasterPassword = hwCurrentPwdInput.value;
+      showToast('Iniciando diálogo de Seguridad de Windows (Toque su llave física)...');
+      const state = await api.configureHardwareKey({
+        authMode,
+        deviceLabel,
+        currentMasterPassword,
+      });
+      hwCurrentPwdInput.value = '';
+      closeHwModal();
+      applyState(state);
+      showToast(
+        authMode === 'password_only'
+          ? 'Llave física desvinculada (Modo Solo Contraseña activo)'
+          : `Llave física vinculada en modo ${authMode}`
+      );
+    } catch (err) {
+      showToast(`Error FIDO2/U2F: ${err.message}`);
+    }
+  });
+
+  // ==========================================================================
   // ATAJOS DE TECLADO COMPLETOS ESTILO KEEPASS 2.X
   // ==========================================================================
 
@@ -754,13 +871,17 @@
 
     const activeTag = document.activeElement ? document.activeElement.tagName : '';
     const isTypingInInput = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT';
-    const isModalOpen = !entryModal.classList.contains('hidden') || !generatorModal.classList.contains('hidden');
+    const isModalOpen =
+      !entryModal.classList.contains('hidden') ||
+      !generatorModal.classList.contains('hidden') ||
+      !hardwareModal.classList.contains('hidden');
 
     // Escape cierra modales o menú contextual
     if (e.key === 'Escape') {
       hideContextMenu();
       if (!entryModal.classList.contains('hidden')) closeEntryModal();
       if (!generatorModal.classList.contains('hidden')) generatorModal.classList.add('hidden');
+      if (!hardwareModal.classList.contains('hidden')) closeHwModal();
       return;
     }
 

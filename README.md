@@ -53,6 +53,16 @@ Estructura binaria de 74 bytes de cabecera + Payload AEAD (.kvlt):
 - La ventana de la aplicación activa `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` en el compositor gráfico de Windows (DWM) desde el arranque.
 - Cualquier intento de captura de pantalla, recorte (`Win + Shift + S`) o grabación de escritorio omite o muestra en negro la ventana de KVault.
 
+### 5. Autenticación con Llaves Físicas por Hardware FIDO2 / U2F (100% Configurable)
+- Integración nativa con `webauthn.dll` de Windows 10/11 para llaves físicas externas por USB-C o NFC:
+  - **Yubico Security Key C NFC** (FIDO2 CTAP2 / FIDO U2F)
+  - **Flipper Zero** (Modo `Apps → USB → U2F` CTAP1)
+  - **YubiKey Serie 5 / SoloKeys / Nitrokey**
+- **3 Modos de Operación (nunca obligatorio)**:
+  1. **Modo 1 — Solo Contraseña Maestra (Por defecto)**: Uso tradicional sin llave física.
+  2. **Modo 2 — Desbloqueo Rápido con Llave Física (1-Toque Passwordless)**: Desbloquea la bóveda con un solo toque físico en la Yubico Security Key o presionando `OK` en el Flipper Zero (verificando matemáticamente la firma **ECDSA P-256** del dispositivo y desencapsulando el Key Slot protegido con ChaCha20-Poly1305 + DPAPI), manteniendo la contraseña maestra como respaldo de emergencia.
+  3. **Modo 3 — Doble Factor Estricto (Contraseña Maestra + Llave Física FIDO2/U2F)**: Combina criptográficamente (`HMAC-SHA256`) la Contraseña Maestra con un factor de 256 bits almacenado en el Key Slot de la llave física, exigiendo ambos factores para poder derivar la clave de `.kvlt`.
+
 ---
 
 ## Opciones y Funcionalidades Principales

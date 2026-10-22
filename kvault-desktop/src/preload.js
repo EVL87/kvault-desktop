@@ -8,9 +8,13 @@ const { contextBridge, ipcRenderer } = require('electron');
  * solo interactúa mediante descriptores de metadatos y solicitudes efímeras.
  */
 contextBridge.exposeInMainWorld('kvault', Object.freeze({
-  // Gestión de bóveda (.kvlt)
+  // Gestión de bóveda (.kvlt) y Llaves Físicas FIDO2 / U2F (Yubico / Flipper Zero)
   createVault: (opts) => ipcRenderer.invoke('vault:create', opts),
   openVault: (opts) => ipcRenderer.invoke('vault:open', opts),
+  openVaultWithHardwareKey: (opts) => ipcRenderer.invoke('vault:open-hardware', opts),
+  inspectHardwareSlot: (filePath) => ipcRenderer.invoke('hardware:inspect-slot', { filePath }),
+  configureHardwareKey: (opts) => ipcRenderer.invoke('hardware:configure', opts),
+  removeHardwareKey: () => ipcRenderer.invoke('hardware:remove'),
   saveVault: () => ipcRenderer.invoke('vault:save'),
   lockVault: () => ipcRenderer.invoke('vault:lock'),
   getState: () => ipcRenderer.invoke('vault:get-state'),

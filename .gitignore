@@ -9,6 +9,7 @@ docs/
 # Archivos de bóvedas personales y temporales transaccionales
 *.kvlt
 *.kvlt.tmp*
+*.hwslot.json
 *.kdbx
 
 # Logs y cachés del sistema operativo

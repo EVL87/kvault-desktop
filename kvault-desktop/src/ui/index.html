@@ -45,6 +45,10 @@
               <td>SetWindowDisplayAffinity=ON</td>
             </tr>
             <tr>
+              <td>Hardware Keys</td>
+              <td>FIDO2 / U2F (ECDSA P-256)</td>
+            </tr>
+            <tr>
               <td>IPC Isolation</td>
               <td>ContextBridge + Sandbox</td>
             </tr>
@@ -80,7 +84,16 @@
           </div>
 
           <div class="form-row">
-            <label>Contraseña Maestra</label>
+            <label>Modo de Autenticación (Configurable)</label>
+            <select id="createAuthModeSelect" class="mono">
+              <option value="password_only">Modo 1 — Solo Contraseña Maestra (Por defecto, sin llave física)</option>
+              <option value="hardware_passwordless">Modo 2 — Llave Física FIDO2 / Flipper U2F (Desbloqueo 1-Toque + Clave respaldo)</option>
+              <option value="hardware_2fa">Modo 3 — Doble Factor Estricto (Contraseña Maestra + Llave Física FIDO2/U2F)</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label>Contraseña Maestra (Principal o de Respaldo)</label>
             <input id="createMasterPwd" type="password" placeholder="Ingrese frase maestra de alta entropía..." required />
           </div>
 
@@ -114,9 +127,17 @@
             </div>
           </div>
 
+          <div id="openHardwareBanner" class="kv-block hidden" style="border-color: var(--accent-blue); background-color: #162230;">
+            <div class="kv-label" style="color: #8ab8f0;">
+              <span id="openHwBannerTitle">LLAVE FÍSICA FIDO2 / U2F VINCULADA</span>
+              <span id="openHwBannerProto" class="mono"></span>
+            </div>
+            <div id="openHwBannerDesc" class="mono" style="font-size: 11px; color: var(--text-primary);"></div>
+          </div>
+
           <div class="form-row">
-            <label>Contraseña Maestra</label>
-            <input id="openMasterPwd" type="password" placeholder="Contraseña maestra del contenedor..." required />
+            <label id="openMasterPwdLabel">Contraseña Maestra</label>
+            <input id="openMasterPwd" type="password" placeholder="Contraseña maestra (o use el botón de Llave Física abajo)..." />
           </div>
 
           <div class="form-row">
@@ -127,7 +148,10 @@
             </div>
           </div>
 
-          <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px;">
+          <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+            <button id="btnOpenWithHardwareKey" type="button" class="btn" title="Desbloquear directamente tocando su Yubico Security Key o Flipper Zero U2F">
+              Desbloquear con Llave Física (FIDO2 / U2F)
+            </button>
             <button type="submit" class="btn btn-primary">Verificar AAD y Descifrar Bóveda</button>
           </div>
         </form>
@@ -150,8 +174,9 @@
         <button id="btnCopyPwdToolbar" class="btn" type="button" title="Copiar Contraseña [Ctrl+C]">Clave [Ctrl+C]</button>
         <button id="btnOpenUrlToolbar" class="btn" type="button" title="Abrir URL en navegador [Ctrl+U]">Abrir URL [Ctrl+U]</button>
         <div class="toolbar-divider"></div>
-        <button id="btnImportKeePass" class="btn" type="button" title="Importar archivo KeePass 2.x (.xml / .csv)">Importar KeePass</button>
+        <button id="btnImportKeePass" class="btn" type="button" title="Importar archivo (.xml / .csv)">Importar XML/CSV</button>
         <button id="btnOpenGenerator" class="btn" type="button">Generador</button>
+        <button id="btnOpenHardwareModal" class="btn" type="button" title="Configurar Llave Física FIDO2 / Yubico / Flipper Zero U2F">Llave FIDO/U2F</button>
         <button id="btnSaveVault" class="btn" type="button" title="Guardar bóveda [Ctrl+S]">Guardar</button>
       </div>
 
@@ -439,6 +464,58 @@
         <button id="btnRegeneratePwd" class="btn" type="button">Regenerar</button>
         <button id="btnCloseGenModal2" class="btn btn-primary" type="button">Cerrar</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL 3: CONFIGURACIÓN DE LLAVE FÍSICA POR HARDWARE (FIDO2 / FLIPPER U2F)
+       ======================================================================== -->
+  <div id="hardwareModal" class="modal-backdrop hidden">
+    <div class="modal-window" style="width: 540px;">
+      <div class="modal-header">
+        <span>Seguridad por Hardware — Llave Física FIDO2 / U2F (Opcional)</span>
+        <button id="btnCloseHwModal" class="btn btn-sm" type="button">✕</button>
+      </div>
+      <form id="hardwareForm">
+        <div class="modal-body">
+          <div class="kv-block">
+            <div class="kv-label">
+              <span>Estado Actual del Contenedor (.kvlt)</span>
+              <span id="hwStatusBadge" class="badge">Solo Contraseña</span>
+            </div>
+            <div id="hwStatusDetails" class="mono" style="font-size: 11.5px; color: var(--text-secondary);">
+              Sin llave física vinculada. La bóveda se abre únicamente con Contraseña Maestra.
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label>Seleccionar Modo de Autenticación</label>
+            <select id="hwAuthModeSelect" class="mono">
+              <option value="password_only">Modo 1 — Solo Contraseña Maestra (Desvincular llave física)</option>
+              <option value="hardware_passwordless">Modo 2 — Desbloqueo Rápido con Llave Física FIDO2 / Flipper U2F (1 Toque)</option>
+              <option value="hardware_2fa">Modo 3 — Doble Factor Estricto (Contraseña Maestra + Llave Física FIDO2/U2F)</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label>Etiqueta del Dispositivo Físico</label>
+            <input id="hwDeviceLabelInput" type="text" class="mono" value="Yubico Security Key C NFC / Flipper Zero U2F" />
+          </div>
+
+          <div class="form-row">
+            <label>Confirmar Contraseña Maestra (Requerido para Modo 3 o al cambiar modo 2FA)</label>
+            <input id="hwCurrentPwdInput" type="password" placeholder="Ingrese su contraseña maestra..." />
+          </div>
+
+          <div class="mono" style="font-size: 11px; color: var(--text-secondary); background-color: #15181c; border: 1px solid var(--border-subtle); padding: 8px;">
+            Compatible con <strong>Yubico Security Key C NFC</strong> (FIDO2/U2F), <strong>YubiKey Serie 5</strong> y <strong>Flipper Zero</strong> (Apps → USB → U2F). Al aplicar, Windows solicitará tocar el botón físico del dispositivo.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btnCancelHwModal" class="btn" type="button">Cancelar</button>
+          <button class="btn btn-primary" type="submit">Aplicar y Vincular Dispositivo</button>
+        </div>
+      </form>
     </div>
   </div>
 
