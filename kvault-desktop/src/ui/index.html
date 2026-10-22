@@ -166,23 +166,19 @@
     <!-- Barra de herramientas superior -->
     <header class="toolbar">
       <div class="toolbar-group">
-        <button id="btnNewEntry" class="btn btn-primary" type="button" title="Nueva Entrada [Ctrl+I]">+ Nueva Entrada</button>
+        <button id="btnNewEntry" class="btn btn-primary" type="button">+ Nueva Entrada</button>
         <button id="btnNewGroup" class="btn" type="button">+ Grupo</button>
         <div class="toolbar-divider"></div>
-        <button id="btnAutoTypeToolbar" class="btn" type="button" title="Cambiar a ventana anterior y escribir Usuario + Tab + Contraseña + Enter [Ctrl+V]">Auto-Type [Ctrl+V]</button>
-        <button id="btnCopyUserToolbar" class="btn" type="button" title="Copiar Usuario [Ctrl+B]">Usuario [Ctrl+B]</button>
-        <button id="btnCopyPwdToolbar" class="btn" type="button" title="Copiar Contraseña [Ctrl+C]">Clave [Ctrl+C]</button>
-        <button id="btnOpenUrlToolbar" class="btn" type="button" title="Abrir URL en navegador [Ctrl+U]">Abrir URL [Ctrl+U]</button>
-        <div class="toolbar-divider"></div>
-        <button id="btnImportKeePass" class="btn" type="button" title="Importar archivo (.xml / .csv)">Importar XML/CSV</button>
+        <button id="btnImportKeePass" class="btn" type="button">Importar XML/CSV</button>
         <button id="btnOpenGenerator" class="btn" type="button">Generador</button>
-        <button id="btnOpenHardwareModal" class="btn" type="button" title="Configurar Llave Física FIDO2 / Yubico / Flipper Zero U2F">Llave FIDO/U2F</button>
-        <button id="btnSaveVault" class="btn" type="button" title="Guardar bóveda [Ctrl+S]">Guardar</button>
+        <button id="btnOpenHardwareModal" class="btn" type="button">Llave FIDO/U2F</button>
+        <button id="btnOpenShortcutsModal" class="btn" type="button">Atajos</button>
+        <button id="btnSaveVault" class="btn" type="button">Guardar</button>
       </div>
 
       <div class="toolbar-group">
-        <input id="searchInput" type="text" class="search-box" placeholder="Filtrar [Ctrl+F]..." />
-        <button id="btnLockVault" class="btn btn-danger" type="button" title="Purgar ProtectedMemory (Zeroize) y bloquear [Ctrl+L]">Bloquear [Ctrl+L]</button>
+        <input id="searchInput" type="text" class="search-box" placeholder="Filtrar registros..." />
+        <button id="btnLockVault" class="btn btn-danger" type="button">Bloquear</button>
       </div>
     </header>
 
@@ -304,26 +300,13 @@
 
           <div class="kv-block" id="inspUrlBlock">
             <div class="kv-label">
-              <span>URL / Endpoint (Doble clic para abrir)</span>
+              <span>URL / Endpoint</span>
               <div style="display: flex; gap: 4px;">
-                <button id="btnOpenUrl" class="btn btn-sm" type="button" title="Abrir en navegador [Ctrl+U]">Abrir [Ctrl+U]</button>
-                <button id="btnCopyUrl" class="btn btn-sm" type="button" title="Copiar URL [Ctrl+Shift+U]">Copiar URL</button>
+                <button id="btnOpenUrl" class="btn btn-sm" type="button">Abrir</button>
+                <button id="btnCopyUrl" class="btn btn-sm" type="button">Copiar</button>
               </div>
             </div>
             <div id="inspUrl" class="kv-value cell-link" title="Doble clic para abrir en el navegador"></div>
-          </div>
-
-          <div class="kv-block">
-            <div class="kv-label">
-              <span>Secuencia Auto-Type (Estilo KeePass)</span>
-              <div style="display: flex; gap: 4px;">
-                <button id="btnInspAutoTypeEnter" class="btn btn-sm btn-primary" type="button" title="Alt+Tab -> Usuario -> Tab -> Clave -> Enter [Ctrl+V]">Auto-Type [Ctrl+V]</button>
-                <button id="btnInspAutoTypeTabSpace" class="btn btn-sm" type="button" title="Alt+Tab -> Usuario -> Tab -> Clave -> Tab -> Espacio [Ctrl+Shift+V]">Tab+Espacio</button>
-              </div>
-            </div>
-            <div class="mono" style="font-size: 11px; color: var(--text-secondary);">
-              Secuencia: <span style="color: #8ab8f0;">{USERNAME}{TAB}{PASSWORD}{ENTER}</span>
-            </div>
           </div>
 
           <div class="kv-block">
@@ -516,6 +499,114 @@
           <button class="btn btn-primary" type="submit">Aplicar y Vincular Dispositivo</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL 4: APARTADO RESUMEN DE ATAJOS DE TECLADO Y RATÓN
+       ======================================================================== -->
+  <div id="shortcutsModal" class="modal-backdrop hidden">
+    <div class="modal-window" style="width: 560px;">
+      <div class="modal-header">
+        <span>Referencia de Atajos de Teclado y Acciones Rápidas</span>
+        <button id="btnCloseShortcutsModal" class="btn btn-sm" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="kv-block">
+          <div class="kv-label"><span>Atajos de Teclado</span></div>
+          <table class="spec-table" style="width: 100%;">
+            <tr>
+              <td class="mono" style="width: 150px; color: #8ab8f0;">Ctrl + V</td>
+              <td>Auto-Type: cambia a ventana anterior y escribe <code>{USERNAME}{TAB}{PASSWORD}{ENTER}</code></td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Ctrl + Shift + V</td>
+              <td>Auto-Type alternativo: <code>{USERNAME}{TAB}{PASSWORD}{TAB}{SPACE}</code></td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Ctrl + C</td>
+              <td>Copiar Contraseña (excluida de Win+V, auto-limpieza en 12s)</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Ctrl + B</td>
+              <td>Copiar Usuario</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Ctrl + T</td>
+              <td>Copiar Código 2FA TOTP de 6 dígitos</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Ctrl + U</td>
+              <td>Abrir URL en el navegador predeterminado</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Ctrl + Shift + U</td>
+              <td>Copiar URL al portapapeles</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Ctrl + Shift + X</td>
+              <td>Purgar inmediatamente el secreto activo del portapapeles</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Ctrl + I</td>
+              <td>Crear Nueva Entrada</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Ctrl + K</td>
+              <td>Duplicar Entrada seleccionada</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Enter / F2</td>
+              <td>Editar Entrada seleccionada</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Supr (Delete)</td>
+              <td>Eliminar Entrada seleccionada</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Ctrl + F</td>
+              <td>Enfocar búsqueda instantánea</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Ctrl + S</td>
+              <td>Guardar contenedor <code>.kvlt</code></td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: #8ab8f0;">Ctrl + L</td>
+              <td>Purgar RAM (Zeroize) y Bloquear Bóveda</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="kv-block">
+          <div class="kv-label"><span>Acciones Directas con el Ratón</span></div>
+          <table class="spec-table" style="width: 100%;">
+            <tr>
+              <td class="mono" style="width: 150px; color: var(--text-secondary);">Doble clic en URL</td>
+              <td>Abre el enlace directamente en el navegador</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: var(--text-secondary);">Doble clic en Usuario</td>
+              <td>Copia el usuario al portapapeles</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: var(--text-secondary);">Doble clic en Entropía</td>
+              <td>Copia la contraseña al portapapeles</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: var(--text-secondary);">Doble clic en 2FA</td>
+              <td>Copia el código TOTP actual</td>
+            </tr>
+            <tr>
+              <td class="mono" style="color: var(--text-secondary);">Clic Derecho</td>
+              <td>Abre el menú contextual en cualquier fila o en el Inspector</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnCloseShortcutsModal2" class="btn btn-primary" type="button">Cerrar</button>
+      </div>
     </div>
   </div>
 

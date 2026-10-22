@@ -92,6 +92,7 @@
   const hwAuthModeSelect = document.getElementById('hwAuthModeSelect');
   const hwDeviceLabelInput = document.getElementById('hwDeviceLabelInput');
   const hwCurrentPwdInput = document.getElementById('hwCurrentPwdInput');
+  const shortcutsModal = document.getElementById('shortcutsModal');
 
   function showToast(msg) {
     if (appState.toastTimer) clearTimeout(appState.toastTimer);
@@ -648,11 +649,6 @@
     renderInspector();
   });
 
-  document.getElementById('btnAutoTypeToolbar').addEventListener('click', () => doAutoType(appState.selectedEntryId, 'enter'));
-  document.getElementById('btnCopyUserToolbar').addEventListener('click', () => doCopyField(appState.selectedEntryId, 'username'));
-  document.getElementById('btnCopyPwdToolbar').addEventListener('click', () => doCopyField(appState.selectedEntryId, 'password'));
-  document.getElementById('btnOpenUrlToolbar').addEventListener('click', () => doOpenUrl(appState.selectedEntryId));
-
   document.getElementById('btnLockVault').addEventListener('click', async () => {
     const state = await api.lockVault();
     applyState(state);
@@ -706,8 +702,6 @@
   document.getElementById('btnCopyTotp').addEventListener('click', () => doCopyField(appState.selectedEntryId, 'totp'));
   document.getElementById('btnOpenUrl').addEventListener('click', () => doOpenUrl(appState.selectedEntryId));
   document.getElementById('btnCopyUrl').addEventListener('click', () => doCopyField(appState.selectedEntryId, 'url'));
-  document.getElementById('btnInspAutoTypeEnter').addEventListener('click', () => doAutoType(appState.selectedEntryId, 'enter'));
-  document.getElementById('btnInspAutoTypeTabSpace').addEventListener('click', () => doAutoType(appState.selectedEntryId, 'tab_space'));
 
   inspUrl.addEventListener('dblclick', () => doOpenUrl(appState.selectedEntryId));
   inspUsername.addEventListener('dblclick', () => doCopyField(appState.selectedEntryId, 'username'));
@@ -837,6 +831,11 @@
   document.getElementById('btnCloseHwModal').addEventListener('click', closeHwModal);
   document.getElementById('btnCancelHwModal').addEventListener('click', closeHwModal);
 
+  const closeShortcutsModal = () => shortcutsModal.classList.add('hidden');
+  document.getElementById('btnOpenShortcutsModal').addEventListener('click', () => shortcutsModal.classList.remove('hidden'));
+  document.getElementById('btnCloseShortcutsModal').addEventListener('click', closeShortcutsModal);
+  document.getElementById('btnCloseShortcutsModal2').addEventListener('click', closeShortcutsModal);
+
   hardwareForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
@@ -874,7 +873,8 @@
     const isModalOpen =
       !entryModal.classList.contains('hidden') ||
       !generatorModal.classList.contains('hidden') ||
-      !hardwareModal.classList.contains('hidden');
+      !hardwareModal.classList.contains('hidden') ||
+      !shortcutsModal.classList.contains('hidden');
 
     // Escape cierra modales o menú contextual
     if (e.key === 'Escape') {
@@ -882,6 +882,13 @@
       if (!entryModal.classList.contains('hidden')) closeEntryModal();
       if (!generatorModal.classList.contains('hidden')) generatorModal.classList.add('hidden');
       if (!hardwareModal.classList.contains('hidden')) closeHwModal();
+      if (!shortcutsModal.classList.contains('hidden')) closeShortcutsModal();
+      return;
+    }
+
+    if (e.key === 'F1') {
+      e.preventDefault();
+      shortcutsModal.classList.toggle('hidden');
       return;
     }
 
