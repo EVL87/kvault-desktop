@@ -63,6 +63,20 @@ const DEFAULT_KDF_PARAMS = {
   p: 1,
 };
 
+const MAX_HWSLOT_COMPRESSED_BYTES = 16 * 1024; // 16 KB máx comprimido
+const MAX_HWSLOT_INFLATED_BYTES = 64 * 1024; // 64 KB máx descomprimido
+const MAX_VAULT_GUNZIP_BYTES = 64 * 1024 * 1024; // 64 MB máx JSON descomprimido
+
+function validateKdfParams(kdfParams) {
+  const N = Number(kdfParams?.N);
+  const r = Number(kdfParams?.r);
+  const p = Number(kdfParams?.p);
+  const isPowerOfTwo = Number.isInteger(N) && N >= 1024 && (N & (N - 1)) === 0;
+  if (!isPowerOfTwo || N > 65536 || !Number.isInteger(r) || r < 1 || r > 16 || !Number.isInteger(p) || p < 1 || p > 4) {
+    throw new Error('Parámetros KDF en cabecera fuera de los límites de seguridad permitidos.');
+  }
+}
+
 /**
  * Codifica un objeto Hardware Key Slot a un bloque binario comprimido con DeflateRaw.
  */
@@ -72,22 +86,28 @@ function encodeHardwareSlotBinary(hwSlot) {
   }
   const rawJson = Buffer.from(JSON.stringify(hwSlot), 'utf8');
   try {
-    return zlib.deflateRawSync(rawJson, { level: 9 });
+    const compressed = zlib.deflateRawSync(rawJson, { level: 9 });
+    if (compressed.length > MAX_HWSLOT_COMPRESSED_BYTES) {
+      throw new Error('El Hardware Key Slot excede el límite máximo permitido.');
+    }
+    return compressed;
   } finally {
     ProtectedMemory.zeroize(rawJson);
   }
 }
 
 /**
- * Decodifica un bloque binario de Hardware Key Slot desde la cabecera `.kvlt`.
+ * Decodifica un bloque binario de Hardware Key Slot desde la cabecera `.kvlt` con límite anti-Zip-Bomb.
  */
 function decodeHardwareSlotBinary(slotBuf) {
-  if (!Buffer.isBuffer(slotBuf) || slotBuf.length === 0) {
+  if (!Buffer.isBuffer(slotBuf) || slotBuf.length === 0 || slotBuf.length > MAX_HWSLOT_COMPRESSED_BYTES) {
     return null;
   }
-  const inflated = zlib.inflateRawSync(slotBuf);
+  const inflated = zlib.inflateRawSync(slotBuf, { maxOutputLength: MAX_HWSLOT_INFLATED_BYTES });
   try {
-    return JSON.parse(inflated.toString('utf8'));
+    const parsed = JSON.parse(inflated.toString('utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed;
   } finally {
     ProtectedMemory.zeroize(inflated);
   }
@@ -95,25 +115,44 @@ function decodeHardwareSlotBinary(slotBuf) {
 
 /**
  * Inspecciona únicamente la cabecera pública y el Key Slot FIDO2/U2F incrustado en un archivo `.kvlt`
- * sin necesidad de descifrar el payload aún.
+ * leyendo exclusivamente el prefijo de cabecera y protegiendo contra bombas de descompresión.
  */
 function inspectVaultFileSlot(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return null;
-  const buf = fs.readFileSync(filePath);
-  if (buf.length < 74 || !buf.subarray(0, 4).equals(MAGIC)) return null;
+  let fd = null;
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile() || stat.size < 74) return null;
 
-  const version = buf.readUInt8(4);
-  if (version === FORMAT_VERSION_V1) {
+    fd = fs.openSync(filePath, 'r');
+    const fixedHeader = Buffer.alloc(62);
+    const bytesRead = fs.readSync(fd, fixedHeader, 0, 62, 0);
+    if (bytesRead < 62 || !fixedHeader.subarray(0, 4).equals(MAGIC)) return null;
+
+    const version = fixedHeader.readUInt8(4);
+    if (version !== FORMAT_VERSION_V2 || stat.size < 78) {
+      return null;
+    }
+
+    const hwSlotLen = fixedHeader.readUInt32LE(58);
+    if (hwSlotLen === 0 || hwSlotLen > MAX_HWSLOT_COMPRESSED_BYTES || stat.size < 62 + hwSlotLen + 16) {
+      return null;
+    }
+
+    const slotSlice = Buffer.alloc(hwSlotLen);
+    const slotRead = fs.readSync(fd, slotSlice, 0, hwSlotLen, 62);
+    if (slotRead !== hwSlotLen) return null;
+
+    return decodeHardwareSlotBinary(slotSlice);
+  } catch {
     return null;
-  }
-  if (version === FORMAT_VERSION_V2 && buf.length >= 78) {
-    const hwSlotLen = buf.readUInt32LE(58);
-    if (hwSlotLen > 0 && buf.length >= 62 + hwSlotLen + 16) {
-      const slotSlice = buf.subarray(62, 62 + hwSlotLen);
-      return decodeHardwareSlotBinary(slotSlice);
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
     }
   }
-  return null;
 }
 
 /**
@@ -128,8 +167,13 @@ function buildCompositeKeyMaterial(masterPassword, keyFilePath = null) {
   ProtectedMemory.zeroize(pwdBuf);
 
   let keyFileHash = Buffer.alloc(32, 0);
-  if (keyFilePath && fs.existsSync(keyFilePath)) {
-    const fileBytes = fs.readFileSync(keyFilePath);
+  if (keyFilePath && String(keyFilePath).trim().length > 0) {
+    const resolvedKeyPath = String(keyFilePath).trim();
+    if (!fs.existsSync(resolvedKeyPath)) {
+      ProtectedMemory.zeroize(pwdHash);
+      throw new Error(`El archivo de llave (KeyFile) requerido no se encuentra en: ${resolvedKeyPath}`);
+    }
+    const fileBytes = fs.readFileSync(resolvedKeyPath);
     keyFileHash = crypto.createHash('sha256').update(fileBytes).digest();
     ProtectedMemory.zeroize(fileBytes);
   }
@@ -146,6 +190,7 @@ function buildCompositeKeyMaterial(masterPassword, keyFilePath = null) {
  * Deriva la clave de 256 bits (32 bytes) a partir del CompositeKey y el Salt de 32 bytes.
  */
 function deriveVaultKey(masterPassword, keyFilePath, salt, kdfParams = DEFAULT_KDF_PARAMS) {
+  validateKdfParams(kdfParams);
   const compositeMaterial = buildCompositeKeyMaterial(masterPassword, keyFilePath);
   try {
     const maxmem = Math.max(64 * 1024 * 1024, 128 * kdfParams.N * kdfParams.r * 2);
@@ -206,9 +251,13 @@ function serializeVaultToBuffer(vaultObject, masterPassword, options = {}) {
       ciphertext = res.ciphertext;
       authTag = res.authTag;
     } else {
-      const cipher = crypto.createCipheriv(cipherName, derivedKey, nonce);
+      const cipher = crypto.createCipheriv(cipherName, derivedKey, nonce, { authTagLength: 16 });
       cipher.setAAD(aadHeader, { plaintextLength: compressedPayload.length });
-      ciphertext = Buffer.concat([cipher.update(compressedPayload), cipher.final()]);
+      const p1 = cipher.update(compressedPayload);
+      const p2 = cipher.final();
+      ciphertext = Buffer.concat([p1, p2]);
+      ProtectedMemory.zeroize(p1);
+      ProtectedMemory.zeroize(p2);
       authTag = cipher.getAuthTag(); // 16 bytes
     }
 
@@ -252,9 +301,7 @@ function deserializeVaultFromBuffer(fileBuffer, masterPassword, keyFilePath = nu
   const N = fileBuffer.readUInt32LE(6);
   const r = fileBuffer.readUInt16LE(10);
   const p = fileBuffer.readUInt16LE(12);
-  if (N < 1024 || N > 1048576 || r < 1 || r > 32 || p < 1 || p > 16) {
-    throw new Error('Parámetros KDF en cabecera fuera de los límites de seguridad permitidos.');
-  }
+  validateKdfParams({ N, r, p });
 
   const salt = fileBuffer.subarray(14, 46);
   const nonce = fileBuffer.subarray(46, 58);
@@ -267,7 +314,7 @@ function deserializeVaultFromBuffer(fileBuffer, masterPassword, keyFilePath = nu
       throw new Error('Cabecera .kvlt v2 truncada.');
     }
     hwSlotLen = fileBuffer.readUInt32LE(58);
-    if (hwSlotLen > 65536 || fileBuffer.length < 62 + hwSlotLen + 16) {
+    if (hwSlotLen > MAX_HWSLOT_COMPRESSED_BYTES || fileBuffer.length < 62 + hwSlotLen + 16) {
       throw new Error('Longitud de Key Slot en cabecera .kvlt corrupta o manipulada.');
     }
     aadEndOffset = 62 + hwSlotLen;
@@ -285,17 +332,21 @@ function deserializeVaultFromBuffer(fileBuffer, masterPassword, keyFilePath = nu
     if (cipherName === 'chacha20-poly1305') {
       compressedPayload = decryptChaCha20Poly1305(derivedKey, nonce, ciphertext, authTag, aadHeader);
     } else {
-      const decipher = crypto.createDecipheriv(cipherName, derivedKey, nonce);
+      const decipher = crypto.createDecipheriv(cipherName, derivedKey, nonce, { authTagLength: 16 });
       decipher.setAAD(aadHeader, { plaintextLength: ciphertext.length });
       decipher.setAuthTag(authTag);
-      compressedPayload = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      const p1 = decipher.update(ciphertext);
+      const p2 = decipher.final();
+      compressedPayload = Buffer.concat([p1, p2]);
+      ProtectedMemory.zeroize(p1);
+      ProtectedMemory.zeroize(p2);
     }
 
     // Solo descomprimir el Key Slot y el payload DESPUÉS de haber verificado criptográficamente el AuthTag AEAD
     const hardwareSlot =
       hwSlotLen > 0 ? decodeHardwareSlotBinary(fileBuffer.subarray(62, aadEndOffset)) : null;
 
-    jsonBytes = zlib.gunzipSync(compressedPayload);
+    jsonBytes = zlib.gunzipSync(compressedPayload, { maxOutputLength: MAX_VAULT_GUNZIP_BYTES });
     const vault = JSON.parse(jsonBytes.toString('utf8'));
 
     return {

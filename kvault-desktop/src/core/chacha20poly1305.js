@@ -185,12 +185,22 @@ function buildPoly1305Data(aad, ciphertext) {
  * @returns {{ ciphertext: Buffer, authTag: Buffer }}
  */
 function encryptChaCha20Poly1305(key, nonce, plaintext, aad = Buffer.alloc(0)) {
+  if (!Buffer.isBuffer(key) || key.length !== 32) {
+    throw new Error('ChaCha20-Poly1305 requiere una clave de exactamente 32 bytes.');
+  }
+  if (!Buffer.isBuffer(nonce) || nonce.length !== 12) {
+    throw new Error('ChaCha20-Poly1305 requiere un nonce de exactamente 12 bytes.');
+  }
   if (HAS_NATIVE_CHACHA20) {
     const cipher = crypto.createCipheriv('chacha20-poly1305', key, nonce, { authTagLength: 16 });
     if (aad.length > 0) {
       cipher.setAAD(aad, { plaintextLength: plaintext.length });
     }
-    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const p1 = cipher.update(plaintext);
+    const p2 = cipher.final();
+    const ciphertext = Buffer.concat([p1, p2]);
+    p1.fill(0);
+    p2.fill(0);
     const authTag = cipher.getAuthTag();
     return { ciphertext, authTag };
   }
@@ -216,13 +226,27 @@ function encryptChaCha20Poly1305(key, nonce, plaintext, aad = Buffer.alloc(0)) {
  * @returns {Buffer} plaintext
  */
 function decryptChaCha20Poly1305(key, nonce, ciphertext, authTag, aad = Buffer.alloc(0)) {
+  if (!Buffer.isBuffer(key) || key.length !== 32) {
+    throw new Error('ChaCha20-Poly1305 requiere una clave de exactamente 32 bytes.');
+  }
+  if (!Buffer.isBuffer(nonce) || nonce.length !== 12) {
+    throw new Error('ChaCha20-Poly1305 requiere un nonce de exactamente 12 bytes.');
+  }
+  if (!Buffer.isBuffer(authTag) || authTag.length !== 16) {
+    throw new Error('Unsupported state or unable to authenticate data');
+  }
   if (HAS_NATIVE_CHACHA20) {
     const decipher = crypto.createDecipheriv('chacha20-poly1305', key, nonce, { authTagLength: 16 });
     if (aad.length > 0) {
       decipher.setAAD(aad, { plaintextLength: ciphertext.length });
     }
     decipher.setAuthTag(authTag);
-    return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const p1 = decipher.update(ciphertext);
+    const p2 = decipher.final();
+    const plain = Buffer.concat([p1, p2]);
+    p1.fill(0);
+    p2.fill(0);
+    return plain;
   }
 
   const polyKeyBlock = chacha20Block(key, 0, nonce);

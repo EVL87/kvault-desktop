@@ -46,24 +46,37 @@ Estructura binaria unificada del contenedor .kvlt (v2):
 - Al hidratarse en el proceso principal, cada secreto se cifra inmediatamente en RAM con **ChaCha20-Poly1305** usando una clave efímera de sesión de 256 bits generada al azar.
 - Cada vez que se requiere revelar o copiar un secreto, el buffer temporal se sobrescribe determinísticamente con ceros (`0x00` / patrón **Zeroize**) al concluir la operación. Al bloquear la bóveda (`Ctrl + L`), la clave efímera de sesión se destruye y rota.
 
-### 3. Portapapeles Inteligente Win32 (Exclusión de `Win + V` + `ClearIfOwner`)
-- **Exclusión del Historial `Win + V`**: Al copiar una contraseña, código 2FA o usuario, KVault abre una transacción directa con `user32.dll` (`OpenClipboard`) e inyecta simultáneamente las banderas nativas de Windows:
+### 3. Portapapeles Inteligente Multiplataforma (Exclusión de Historial + `ClearIfOwner`)
+- **En Windows 10/11 (Exclusión de `Win + V`)**: Al copiar una contraseña, código 2FA o usuario, KVault abre una transacción directa con `user32.dll` (`OpenClipboard`) e inyecta simultáneamente las banderas nativas:
   - `ExcludeClipboardContentFromMonitorProcessing = 1`
   - `CanIncludeInClipboardHistory = 0`
   - `CanUploadToCloudClipboard = 0`
   - `Clipboard Viewer Ignore = 1`
   Esto permite pegar el secreto normalmente con `Ctrl + V`, pero **impide que el historial del portapapeles de Windows 10/11 (`Win + V`) y la sincronización en la nube lo capturen o almacenen**.
-- **Limpieza Selectiva (`ClearIfOwner`)**: Transcurridos **12 segundos**, KVault verifica si el slot activo del portapapeles aún contiene el secreto que copió. Si coincide, limpia únicamente el slot activo (`EmptyClipboard`) **sin borrar ni alterar los demás textos que el usuario tenga guardados en su historial `Win + V`**. Si el usuario copió otro texto de trabajo durante esos 12 segundos, KVault respeta la nueva copia.
+- **En Sistemas Basados en Debian (Debian, Ubuntu, Linux Mint, Pop!_OS)**: Inyecta el hint `x-kde-passwordManagerHint = secret` vía `wl-copy` / `xclip` por `stdin` (sin exponer secretos en `/proc/<pid>/cmdline`) para excluir la copia de gestores como Klipper, CopyQ y GPaste.
+- **Limpieza Selectiva (`ClearIfOwner` con `timingSafeEqual`)**: Transcurridos **12 segundos**, KVault verifica en tiempo constante si el slot activo del portapapeles aún contiene el secreto que copió. Si coincide, limpia únicamente el slot activo **sin borrar ni alterar los demás textos que el usuario tenga guardados en su historial**.
 
 ### 4. Protección Anti-Captura de Pantalla (`SetWindowDisplayAffinity`)
-- La ventana de la aplicación activa `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` en el compositor gráfico de Windows (DWM) desde el arranque.
-- Cualquier intento de captura de pantalla, recorte (`Win + Shift + S`) o grabación de escritorio omite o muestra en negro la ventana de KVault.
+- La ventana de la aplicación activa `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` desde el arranque.
+- En Windows 10/11, cualquier intento de captura de pantalla, recorte (`Win + Shift + S`) o grabación de escritorio omite o muestra en negro la ventana de KVault.
 
 ### 5. Autenticación Configurable (`Contraseña`, `Llave Física`, `DFA (Pass + Key)`)
-- Integración nativa con `webauthn.dll` de Windows 10/11 para llaves físicas externas FIDO2 / U2F por USB o NFC, sin exponer metadatos descriptivos del dispositivo en la pantalla de bloqueo:
+- Integración nativa con `webauthn.dll` en Windows 10/11 y `libfido2` (`fido2-token`, `fido2-cred`, `fido2-assert`) en sistemas basados en Debian para llaves físicas externas FIDO2 / U2F por USB o NFC, sin exponer metadatos descriptivos del dispositivo en la pantalla de bloqueo:
   1. **`Contraseña` (Por defecto)**: Apertura tradicional únicamente con Contraseña Maestra (y KeyFile opcional).
-  2. **`DFA (Pass + Key)`**: Doble factor criptográfico estricto que exige **Contraseña Maestra + toque físico en la llave de seguridad** (`HMAC-SHA256` sobre factor de 256 bits desencapsulado tras verificar la firma **ECDSA P-256** del hardware).
-  3. **`Llave Física`**: Apertura rápida con toque en la llave física (verificando firma **ECDSA P-256** + `ChaCha20-Poly1305` + `DPAPI`), manteniendo la Contraseña Maestra como llave de recuperación.
+  2. **`DFA (Pass + Key)`**: Doble factor criptográfico estricto que exige **Contraseña Maestra + toque físico en la llave de seguridad** (`HMAC-SHA256` sobre factor de 256 bits desencapsulado tras verificar la firma **ECDSA P-256** y el contador monotónico `signCount` del hardware).
+  3. **`Llave Física`**: Apertura rápida con toque en la llave física (verificando firma **ECDSA P-256** + `ChaCha20-Poly1305` + llavero del SO `DPAPI` / `libsecret` + secreto maestro local de 256 bits), manteniendo la Contraseña Maestra como llave de recuperación.
+
+---
+
+## Blindaje de Seguridad y Mitigaciones CVE (v1.1.0)
+
+KVault Desktop v1.1.0 incorpora defensas en profundidad auditadas contra vulnerabilidades del runtime Node.js / Electron y vectores locales:
+- **Mitigación `CVE-2026-106074` (Entropía de UUID en Snapshots V8)**: Todas las llamadas a `crypto.randomUUID({ disableEntropyCache: true })` deshabilitan explícitamente el caché de entropía de arranque y los secretos/nonces utilizan `crypto.randomBytes()` directo sobre el CSPRNG del sistema operativo.
+- **Mitigación `CVE-2026-105482` y Sanitización de `shell.openExternal`**: El validador `validateAndSanitizeExternalUrl` bloquea bytes NUL (`\0`), caracteres de control y cualquier esquema distinto de `https://` o `http://` (`file://`, `smb://`, `ms-msdt:`, `search-ms:`, `javascript:`).
+- **Aislamiento contra `CVE-2026-111497` (Brotli), `CVE-2026-105483` y `CVE-2026-106069` (TLS)**: KVault opera 100% offline sin llamadas `fetch`/`http`/`tls` ni descompresión Brotli, e impone límites estrictos `maxOutputLength` en `zlib.inflateRawSync` y `zlib.gunzipSync` contra bombas de descompresión (*Zip Bombs*).
+- **Verificación de Integridad `SHA-256` de Scripts Auxiliares (`secureExec.js`)**: Antes de invocar cualquier script `.ps1` desempaquetado, KVault verifica en tiempo constante su hash `SHA-256` contra un manifiesto inmutable y resuelve `powershell.exe` / binarios de Linux exclusivamente mediante rutas absolutas de sistema (`%SystemRoot%\System32` y `/usr/bin`) con `cwd` seguro.
+- **Protección contra Inyección de Argumentos en Asociación `.kvlt`**: Los registros de Windows y Freedesktop XDG invocan el ejecutable con el delimitador `--` (`"KVault Desktop" -- "%1"`) y `extractKvltPathFromArgs` rechaza cualquier argumento con prefijo `-` antes de `--`.
+- **Validación Estricta de Parámetros KDF Scrypt**: Verifica que `N` sea potencia de 2 exacta dentro del rango seguro (`1024 <= N <= 65536`, `1 <= r <= 16`, `1 <= p <= 4`) antes de invocar OpenSSL, previniendo ataques de denegación de servicio con cabeceras `.kvlt` manipuladas.
 
 ---
 
@@ -132,20 +145,22 @@ kvault-desktop/
 │   ├── icon.ico                  # Icono multi-resolución (256px-16px) para la app y archivos .kvlt
 │   └── icon.png                  # Icono PNG de alta resolución
 ├── scripts/
-│   └── generate-icon.ps1         # Generador vectorial del icono oficial .ico/.png
+│   ├── generate-icon.ps1         # Generador vectorial del icono oficial .ico/.png
+│   └── build-deb.js              # Empaquetador reproducible Debian (.deb) con AppArmor y MIME .kvlt
 ├── src/
 │   ├── main.js                   # Proceso principal Electron, aislamiento IPC, temas y sesión
 │   ├── preload.js                # ContextBridge seguro (Sandbox + Context Isolation)
 │   ├── core/
+│   │   ├── secureExec.js         # Verificador SHA-256 de scripts .ps1, rutas absolutas y sanitizador URL
 │   │   ├── vaultFormat.js        # Especificación y serializador AEAD del formato unificado .kvlt v2
 │   │   ├── chacha20poly1305.js   # Implementación RFC 8439 ChaCha20-Poly1305 AEAD
-│   │   ├── fido2Hardware.js      # Criptografía P-256 y Key Slot para llaves físicas FIDO2 / U2F
+│   │   ├── fido2Hardware.js      # Criptografía P-256 y Key Slot FIDO2/U2F (Windows webauthn.dll + Linux libfido2)
 │   │   ├── win32WebAuthn.ps1     # Puente nativo P/Invoke contra webauthn.dll de Windows 10/11
-│   │   ├── fileAssociation.js    # Asociación automática de extensión .kvlt e icono en Windows
+│   │   ├── fileAssociation.js    # Asociación automática de extensión .kvlt e icono (Windows + Linux XDG)
 │   │   ├── win32FileAssoc.ps1    # Registro HKCU\Software\Classes\.kvlt y SHChangeNotify
 │   │   ├── protectedMemory.js    # Cifrado efímero en RAM y borrado determinista Zeroize
 │   │   ├── totp.js               # Generador RFC 6238 TOTP y CSPRNG con cálculo de entropía
-│   │   ├── autoType.js           # Motor de escritura automática y puente de portapapeles
+│   │   ├── autoType.js           # Motor de escritura automática y portapapeles (Win32 + X11/Wayland)
 │   │   └── win32Clipboard.ps1    # Integración Win32 user32.dll (Exclusión Win+V y ClearIfOwner)
 │   ├── importer/
 │   │   └── keepassImporter.js    # Importador de estructuras XML jerárquicas y CSV
@@ -154,17 +169,23 @@ kvault-desktop/
 │       ├── styles.css            # Diseño utilitario de escritorio (Temas Oscuro, Claro y Auto OS)
 │       └── renderer.js           # Controlador de vistas, temas, atajos, menú contextual y TOTP
 └── test/
-    └── test-vault.js             # Suite de pruebas criptográficas, AAD, FIDO2/U2F, memoria e importación
+    └── test-vault.js             # Suite de 7 pruebas criptográficas, AAD, FIDO2/U2F, memoria y CVEs
 ```
 
 ---
 
 ## Descarga, Instalación y Compilación
 
-### Ejecutables Precompilados (Release v1.0.0)
-Disponibles directamente en la sección [**Releases**](https://github.com/EVL87/kvault-desktop/releases/tag/v1.0.0):
-- **`KVault-Desktop-Setup-1.0.0.exe`**: Instalador para Windows 10/11 x64 (crea accesos directos y asocia automáticamente los archivos `.kvlt` con el icono de la aplicación).
-- **`KVault-Desktop-Portable-1.0.0.exe`**: Ejecutable portable autónomo de un solo archivo.
+### Ejecutables Precompilados (Release v1.1.0 — Windows & Debian/Ubuntu/Mint)
+Disponibles directamente en la sección [**Releases v1.1.0**](https://github.com/EVL87/kvault-desktop/releases/tag/v1.1.0):
+- **Windows 10 / 11 (x64)**:
+  - **`KVault-Desktop-Setup-1.1.0.exe`**: Instalador NSIS (crea accesos directos y asocia automáticamente los archivos `.kvlt` con el icono oficial).
+  - **`KVault-Desktop-Portable-1.1.0.exe`**: Ejecutable portable autónomo de un solo archivo.
+- **Debian / Ubuntu / Linux Mint / Pop!_OS / Kali (amd64)**:
+  - **`kvault-desktop_1.1.0_amd64.deb`**: Paquete oficial `.deb` (incluye perfil AppArmor para Ubuntu 24.04+ / Mint 22+, asociación MIME `.kvlt` e integración con `libsecret` y `libfido2`).
+  ```bash
+  sudo apt install ./kvault-desktop_1.1.0_amd64.deb
+  ```
 
 ### Desarrollo y Compilación Desde Código Fuente
 
@@ -174,7 +195,7 @@ cd kvault-desktop
 # 1. Instalar dependencias
 npm install
 
-# 2. Ejecutar la suite de verificación criptográfica y de memoria (6/6 pruebas)
+# 2. Ejecutar la suite completa de verificación criptográfica y de seguridad (7/7 suites)
 npm test
 
 # 3. Iniciar KVault Desktop en modo desarrollo
@@ -182,4 +203,7 @@ npm start
 
 # 4. Compilar instalador NSIS y ejecutable Portable (.exe) en dist/
 npm run build:exe
+
+# 5. Construir paquete Debian (.deb) seguro para Debian/Ubuntu/Linux Mint en dist/
+npm run build:deb
 ```

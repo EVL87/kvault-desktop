@@ -35,6 +35,7 @@ const {
   extractKvltPathFromArgs,
   registerKvltFileAssociation,
 } = require('./core/fileAssociation');
+const { validateAndSanitizeExternalUrl } = require('./core/secureExec');
 
 const memoryGuard = new ProtectedMemory();
 let pendingFilePath = extractKvltPathFromArgs(process.argv);
@@ -88,7 +89,7 @@ function hydrateEntriesIntoProtectedMemory(rawEntries) {
   session.entries.clear();
 
   for (const raw of rawEntries) {
-    const id = raw.id || crypto.randomUUID();
+    const id = raw.id || crypto.randomUUID({ disableEntropyCache: true });
     const pwdPlain = String(raw.password || '');
     const totpPlain = String(raw.totpSecret || '');
     const entropy = calculatePasswordEntropy(pwdPlain);
@@ -319,7 +320,8 @@ async function copyWithAutoWipe(secretText, label = 'Secreto') {
 }
 
 function createWindow() {
-  const iconPath = path.join(__dirname, '..', 'assets', 'icon.ico');
+  const iconFile = process.platform === 'linux' ? 'icon.png' : 'icon.ico';
+  const iconPath = path.join(__dirname, '..', 'assets', iconFile);
   mainWindow = new BrowserWindow({
     width: 1340,
     height: 840,
@@ -335,9 +337,15 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
-      devTools: true,
+      devTools: !app.isPackaged,
     },
   });
+
+  // Bloquear cualquier intento de navegación externa o apertura de ventanas emergentes dentro del Renderer
+  mainWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
   // Activa SetWindowDisplayAffinity en Windows para impedir capturas de pantalla.
   mainWindow.setContentProtection(true);
@@ -474,7 +482,7 @@ ipcMain.handle('vault:create', async (_evt, opts) => {
   const initialEntries = seedSample
     ? [
         {
-          id: crypto.randomUUID(),
+          id: crypto.randomUUID({ disableEntropyCache: true }),
           groupId: infraGroupId,
           title: 'AWS Production Root Bastion',
           username: 'secops-admin@corp.internal',
@@ -485,7 +493,7 @@ ipcMain.handle('vault:create', async (_evt, opts) => {
           tags: ['prod', 'aws', 'iam'],
         },
         {
-          id: crypto.randomUUID(),
+          id: crypto.randomUUID({ disableEntropyCache: true }),
           groupId: devGroupId,
           title: 'GitHub Enterprise Signing Token',
           username: 'release-bot',
@@ -496,7 +504,7 @@ ipcMain.handle('vault:create', async (_evt, opts) => {
           tags: ['ci-cd', 'github'],
         },
         {
-          id: crypto.randomUUID(),
+          id: crypto.randomUUID({ disableEntropyCache: true }),
           groupId: financeGroupId,
           title: 'HSM Offline Backup Passphrase',
           username: 'pkcs11-slot0',
@@ -775,7 +783,7 @@ ipcMain.handle('entry:upsert', async (_evt, entryInput) => {
 
   const isExisting = entryInput.id && session.entries.has(entryInput.id);
   const existing = isExisting ? session.entries.get(entryInput.id) : null;
-  const id = isExisting ? entryInput.id : crypto.randomUUID();
+  const id = isExisting ? entryInput.id : crypto.randomUUID({ disableEntropyCache: true });
 
   let pwdPlain = '';
   if (typeof entryInput.password === 'string' && entryInput.password !== '__KEEP_EXISTING__') {
@@ -840,7 +848,7 @@ ipcMain.handle('group:create', (_evt, groupInput) => {
   const name = String(groupInput?.name || '').trim();
   if (!name) throw new Error('El nombre del grupo no puede estar vacío.');
   const newGroup = {
-    id: `g-${crypto.randomUUID().slice(0, 8)}`,
+    id: `g-${crypto.randomUUID({ disableEntropyCache: true }).slice(0, 8)}`,
     parentId: groupInput.parentId || session.groups[0]?.id || null,
     name,
     icon: 'folder',
@@ -900,13 +908,9 @@ ipcMain.handle('url:open', async (_evt, { entryId }) => {
   const item = session.entries.get(entryId);
   if (!item || !item.url) throw new Error('Esta entrada no tiene una URL configurada.');
 
-  let targetUrl = item.url.trim();
-  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(targetUrl)) {
-    targetUrl = `https://${targetUrl}`;
-  }
-
-  await shell.openExternal(targetUrl);
-  return { opened: true, url: targetUrl };
+  const safeUrl = validateAndSanitizeExternalUrl(item.url);
+  await shell.openExternal(safeUrl);
+  return { opened: true, url: safeUrl };
 });
 
 ipcMain.handle('autotype:run', async (_evt, { entryId, mode = 'enter' }) => {
@@ -934,7 +938,7 @@ ipcMain.handle('entry:duplicate', (_evt, entryId) => {
   const existing = session.entries.get(entryId);
   if (!existing) throw new Error('Entrada no encontrada.');
 
-  const newId = crypto.randomUUID();
+  const newId = crypto.randomUUID({ disableEntropyCache: true });
   const pwdPlain = memoryGuard.unprotectToString(existing._pwdEnvelope);
   const totpPlain = memoryGuard.unprotectToString(existing._totpEnvelope);
   const pwdEnvelope = memoryGuard.protectString(pwdPlain);
@@ -984,7 +988,7 @@ function mergeImportedDataIntoSession(imported) {
   const rootGroupId = session.groups[0]?.id || 'g-root';
 
   for (const grp of imported.groups || []) {
-    const newId = `g-${crypto.randomUUID().slice(0, 8)}`;
+    const newId = `g-${crypto.randomUUID({ disableEntropyCache: true }).slice(0, 8)}`;
     groupIdMap.set(grp.id, newId);
     session.groups.push({
       id: newId,
@@ -996,7 +1000,7 @@ function mergeImportedDataIntoSession(imported) {
 
   let importedCount = 0;
   for (const raw of imported.entries || []) {
-    const id = crypto.randomUUID();
+    const id = crypto.randomUUID({ disableEntropyCache: true });
     const pwdPlain = String(raw.password || '');
     const totpPlain = String(raw.totpSecret || '');
     const pwdEnvelope = memoryGuard.protectString(pwdPlain);

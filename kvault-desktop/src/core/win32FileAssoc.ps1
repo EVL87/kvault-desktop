@@ -14,9 +14,9 @@ $iconKey = "$progKey\DefaultIcon"
 $cmdKey = "$progKey\shell\open\command"
 
 $openCommand = if ([string]::IsNullOrWhiteSpace($AppDir)) {
-    "`"$ExePath`" `"%1`""
+    "`"$ExePath`" -- `"%1`""
 } else {
-    "`"$ExePath`" `"$AppDir`" `"%1`""
+    "`"$ExePath`" `"$AppDir`" -- `"%1`""
 }
 
 $iconValue = "`"$IconFile`",0"

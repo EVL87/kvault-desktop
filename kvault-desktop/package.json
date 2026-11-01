@@ -1,7 +1,7 @@
 {
   "name": "kvault-desktop",
   "productName": "KVault Desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "KVault Desktop — Gestor de credenciales de escritorio con contenedor binario autenticado (.kvlt AEAD), memoria cifrada ProtectedMemory, llaves físicas FIDO2/U2F, 2FA TOTP y Auto-Type nativo",
   "author": "KVault Security",
   "main": "src/main.js",
@@ -9,7 +9,8 @@
     "start": "electron .",
     "test": "node test/test-vault.js",
     "generate:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-icon.ps1",
-    "build:exe": "electron-builder --win --x64"
+    "build:exe": "electron-builder --win --x64",
+    "build:deb": "node scripts/build-deb.js"
   },
   "build": {
     "appId": "com.kvault.desktop",
@@ -26,7 +27,8 @@
     "asar": true,
     "asarUnpack": [
       "src/core/*.ps1",
-      "assets/icon.ico"
+      "assets/icon.ico",
+      "assets/icon.png"
     ],
     "fileAssociations": [
       {

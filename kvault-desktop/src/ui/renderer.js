@@ -1097,9 +1097,11 @@
       applyState(st);
     }
     tabOpenBtn.click();
-    openFilePathInput.value = filePath;
+    const openPathEl = document.getElementById('openFilePathInput');
+    if (openPathEl) openPathEl.value = filePath;
     await refreshOpenHardwareSlotBanner(filePath);
-    openMasterPwdInput.focus();
+    const openPwdEl = document.getElementById('openMasterPwd');
+    if (openPwdEl) openPwdEl.focus();
   }
 
   if (api.onOpenFileRequest) {

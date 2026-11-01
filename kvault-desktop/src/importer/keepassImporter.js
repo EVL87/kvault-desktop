@@ -4,6 +4,9 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const MAX_IMPORT_FILE_BYTES = 32 * 1024 * 1024; // 32 MB máx
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /**
  * Módulo de Migración e Importación de Bóvedas Externas (XML Jerárquico y CSV)
  *
@@ -25,32 +28,39 @@ function decodeXmlEntities(str) {
     .replace(/&amp;/g, '&');
 }
 
-function extractTagValue(xmlBlock, tagName) {
+function extractTagValue(xmlBlock, tagName, decode = true) {
   const regex = new RegExp(`<${tagName}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tagName}>`, 'i');
   const match = xmlBlock.match(regex);
-  return match ? decodeXmlEntities(match[1].trim()) : '';
+  if (!match) return '';
+  const raw = match[1];
+  return decode ? decodeXmlEntities(raw.trim()) : raw;
 }
 
 /**
- * Extrae las entradas `<Entry>...</Entry>` directas de un bloque XML (excluyendo el bloque `<History>`).
+ * Extrae las entradas `<Entry>...</Entry>` directas de un bloque XML (excluyendo previamente `<History>`).
  */
 function parseEntriesFromGroupBlock(groupBodyWithoutSubgroups, groupId) {
   const entries = [];
+  // Eliminar bloques <History> ANTES de buscar <Entry> para evitar que <Entry> anidados en <History>
+  // trunquen el bloque padre o sobrescriban las contraseñas actuales con claves antiguas.
+  const cleanedGroupBody = groupBodyWithoutSubgroups.replace(/<History\b[^>]*>[\s\S]*?<\/History>/gi, '');
   const entryRegex = /<Entry\b[^>]*>([\s\S]*?)<\/Entry>/gi;
   let match;
 
-  while ((match = entryRegex.exec(groupBodyWithoutSubgroups)) !== null) {
+  while ((match = entryRegex.exec(cleanedGroupBody)) !== null) {
     const rawEntry = match[1];
-    // Ignorar entradas dentro de <History> para quedarse con el estado actual
-    const withoutHistory = rawEntry.replace(/<History\b[^>]*>[\s\S]*?<\/History>/gi, '');
+    const fields = Object.create(null);
 
-    const fields = {};
-    const stringRegex = /<String\b[^>]*>\s*<Key>([\s\S]*?)<\/Key>\s*<Value(?:\s[^>]*)?>([\s\S]*?)<\/Value>\s*<\/String>/gi;
-    let strMatch;
-    while ((strMatch = stringRegex.exec(withoutHistory)) !== null) {
-      const k = decodeXmlEntities(strMatch[1].trim());
-      const v = decodeXmlEntities(strMatch[2]);
-      fields[k] = v;
+    const stringBlockRegex = /<String\b[^>]*>([\s\S]*?)<\/String>/gi;
+    let blockMatch;
+    while ((blockMatch = stringBlockRegex.exec(rawEntry)) !== null) {
+      const block = blockMatch[1];
+      const k = extractTagValue(block, 'Key', true);
+      const rawVal = extractTagValue(block, 'Value', false);
+      const v = decodeXmlEntities(rawVal);
+      if (k && !FORBIDDEN_KEYS.has(k)) {
+        fields[k] = v;
+      }
     }
 
     const totpSecret =
@@ -60,10 +70,10 @@ function parseEntriesFromGroupBlock(groupBodyWithoutSubgroups, groupId) {
       fields['TOTP'] ||
       '';
 
-    const lastMod = extractTagValue(withoutHistory, 'LastModificationTime') || new Date().toISOString();
+    const lastMod = extractTagValue(rawEntry, 'LastModificationTime', true) || new Date().toISOString();
 
     entries.push({
-      id: crypto.randomUUID(),
+      id: crypto.randomUUID({ disableEntropyCache: true }),
       groupId,
       title: fields['Title'] || 'Sin título',
       username: fields['UserName'] || '',
@@ -71,7 +81,7 @@ function parseEntriesFromGroupBlock(groupBodyWithoutSubgroups, groupId) {
       url: fields['URL'] || '',
       notes: fields['Notes'] || '',
       totpSecret,
-      modifiedAt: lastMod
+      modifiedAt: lastMod,
     });
   }
 
@@ -104,8 +114,9 @@ function importKeePassXml(xmlContent) {
 
     if (!isClosing && !isSelfClosing) {
       stack.push({
+        openTagStartIdx: tokenMatch.index,
         startIdx: tokenMatch.index + token.length,
-        childRanges: []
+        childRanges: [],
       });
     } else if (isClosing && stack.length > 0) {
       const current = stack.pop();
@@ -121,14 +132,14 @@ function importKeePassXml(xmlContent) {
       }
       directContent += fullGroupInner.slice(cursor);
 
-      const groupName = extractTagValue(directContent, 'Name') || 'General';
-      const groupId = crypto.randomUUID();
+      const groupName = extractTagValue(directContent, 'Name', true) || 'General';
+      const groupId = crypto.randomUUID({ disableEntropyCache: true });
       current.groupId = groupId;
 
       groups.push({
         id: groupId,
         name: groupName,
-        depth: stack.length
+        depth: stack.length,
       });
 
       const groupEntries = parseEntriesFromGroupBlock(directContent, groupId);
@@ -137,8 +148,8 @@ function importKeePassXml(xmlContent) {
       if (stack.length > 0) {
         const parent = stack[stack.length - 1];
         parent.childRanges.push({
-          relStart: current.startIdx - parent.startIdx - 7,
-          relEnd: endIdx + token.length - parent.startIdx
+          relStart: current.openTagStartIdx - parent.startIdx,
+          relEnd: endIdx + token.length - parent.startIdx,
         });
       }
     }
@@ -150,7 +161,7 @@ function importKeePassXml(xmlContent) {
   return {
     groups,
     entries,
-    sourceFormat: 'KeePass 2.x XML (.xml)'
+    sourceFormat: 'KeePass 2.x XML (.xml)',
   };
 }
 
@@ -193,7 +204,7 @@ function importKeePassCsv(csvContent) {
     return cols;
   };
 
-  const defaultGroupId = crypto.randomUUID();
+  const defaultGroupId = crypto.randomUUID({ disableEntropyCache: true });
   const groups = [{ id: defaultGroupId, name: 'Importado CSV KeePass', depth: 0 }];
   const entries = [];
 
@@ -201,7 +212,7 @@ function importKeePassCsv(csvContent) {
     const cols = parseCsvRow(lines[i]);
     if (cols.length >= 3) {
       entries.push({
-        id: crypto.randomUUID(),
+        id: crypto.randomUUID({ disableEntropyCache: true }),
         groupId: defaultGroupId,
         title: cols[0] || 'Entrada CSV',
         username: cols[1] || '',
@@ -209,7 +220,7 @@ function importKeePassCsv(csvContent) {
         url: cols[3] || '',
         notes: cols[4] || '',
         totpSecret: cols[5] || '',
-        modifiedAt: new Date().toISOString()
+        modifiedAt: new Date().toISOString(),
       });
     }
   }
@@ -217,7 +228,7 @@ function importKeePassCsv(csvContent) {
   return {
     groups,
     entries,
-    sourceFormat: 'KeePass CSV (.csv)'
+    sourceFormat: 'KeePass CSV (.csv)',
   };
 }
 
@@ -226,6 +237,10 @@ function importKeePassCsv(csvContent) {
  * @param {string} filePath
  */
 function importKeePassFile(filePath) {
+  const stat = fs.statSync(filePath);
+  if (!stat.isFile() || stat.size > MAX_IMPORT_FILE_BYTES) {
+    throw new Error('El archivo de importación excede el tamaño máximo permitido (32 MB).');
+  }
   const ext = path.extname(filePath).toLowerCase();
   const content = fs.readFileSync(filePath, 'utf8');
   if (ext === '.csv') {
@@ -237,5 +252,5 @@ function importKeePassFile(filePath) {
 module.exports = {
   importKeePassXml,
   importKeePassCsv,
-  importKeePassFile
+  importKeePassFile,
 };

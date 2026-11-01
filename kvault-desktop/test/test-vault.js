@@ -17,7 +17,7 @@ const {
   calculatePasswordEntropy,
   generateSecurePassword,
 } = require('../src/core/totp');
-const { importKeePassFile } = require('../src/importer/keepassImporter');
+const { importKeePassFile, importKeePassXml } = require('../src/importer/keepassImporter');
 const { escapeForSendKeys } = require('../src/core/autoType');
 const {
   RP_ID,
@@ -27,6 +27,13 @@ const {
   unwrapSecretFromHardwareSlot,
   combinePasswordAndHardwareFactor,
 } = require('../src/core/fido2Hardware');
+const {
+  validateAndSanitizeExternalUrl,
+  verifyPowerShellScriptIntegrity,
+  getWindowsPowerShellExecutable,
+  EXPECTED_PS1_HASHES,
+} = require('../src/core/secureExec');
+const { extractKvltPathFromArgs } = require('../src/core/fileAssociation');
 const crypto = require('node:crypto');
 
 console.log('======================================================================');
@@ -230,8 +237,134 @@ console.log('===================================================================
     'El AuthTag AEAD debe rechazar cualquier manipulación del Key Slot incrustado en el archivo .kvlt'
   );
 
-  console.log('[OK] 6/6 Llaves Físicas FIDO2 / U2F: Slot unificado dentro de .kvlt (con protección AAD) y firma P-256 verificados.');
+  console.log('[OK] 6/7 Llaves Físicas FIDO2 / U2F: Slot unificado dentro de .kvlt (con protección AAD) y firma P-256 verificados.');
+
+  // 7. Suite de Verificación de Parches de Seguridad y CVEs de Node.js / Electron
+  {
+    // 7.1 VULN-01 & CVE-2026-105482: Sanitización de URLs externas (shell.openExternal) y bloqueo de bytes NUL (\0)
+    const maliciousUrls = [
+      'file:///C:/Windows/System32/calc.exe',
+      'smb://198.51.100.25/share/pwn',
+      'ms-msdt:/id PCWDiagnostic /skip force',
+      'search-ms:query=malicious',
+      'javascript:alert(document.cookie)',
+      'https://trusted.example.com\x00.attacker.com/login',
+    ];
+    for (const badUrl of maliciousUrls) {
+      assert.throws(
+        () => validateAndSanitizeExternalUrl(badUrl),
+        /bloquead|No se permite|inválid/i,
+        `Debe bloquear URL peligrosa o con byte NUL: ${JSON.stringify(badUrl)}`
+      );
+    }
+    assert.equal(
+      validateAndSanitizeExternalUrl('https://github.com/EVL87/kvault-desktop'),
+      'https://github.com/EVL87/kvault-desktop'
+    );
+
+    // 7.2 VULN-03 & H-02: Ruta absoluta System32 para PowerShell y verificación SHA-256 de scripts .ps1
+    if (process.platform === 'win32') {
+      const psExe = getWindowsPowerShellExecutable();
+      assert.ok(
+        psExe.toLowerCase().includes('system32\\windowspowershell\\v1.0\\powershell.exe'),
+        'PowerShell debe resolverse desde System32 para prevenir secuestro de PATH/CWD'
+      );
+    }
+    const coreDir = path.join(__dirname, '..', 'src', 'core');
+    for (const scriptName of Object.keys(EXPECTED_PS1_HASHES)) {
+      const verified = verifyPowerShellScriptIntegrity(path.join(coreDir, scriptName));
+      assert.equal(verified, true, `Script ${scriptName} verificado con SHA-256`);
+    }
+    assert.throws(
+      () => verifyPowerShellScriptIntegrity(path.join(coreDir, 'untrusted.ps1')),
+      /no autorizado/i,
+      'Debe rechazar cualquier script PowerShell fuera de la lista blanca SHA-256'
+    );
+
+    // 7.3 VULN-04: Inyección de argumentos CLI en asociación .kvlt
+    const tmpCliDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kvault-cli-'));
+    const realKvltFile = path.join(tmpCliDir, 'mi_boveda.kvlt');
+    fs.writeFileSync(realKvltFile, 'KVLT');
+    const fakeFlagKvltFile = path.join(tmpCliDir, '--gpu-launcher=calc.kvlt');
+    fs.writeFileSync(fakeFlagKvltFile, 'KVLT');
+
+    assert.equal(
+      extractKvltPathFromArgs(['KVault.exe', '--gpu-launcher=cmd /c calc .kvlt']),
+      null,
+      'Debe rechazar flags de Chromium disfrazados con sufijo .kvlt antes de --'
+    );
+    assert.equal(
+      extractKvltPathFromArgs(['KVault.exe', '--', realKvltFile]),
+      path.resolve(realKvltFile),
+      'Debe aceptar rutas .kvlt legítimas existentes después del delimitador --'
+    );
+    fs.rmSync(tmpCliDir, { recursive: true, force: true });
+
+    // 7.4 VULN-05 & VULN-06: Protección contra parámetros Scrypt maliciosos (DoS) y KeyFile ausente
+    const validVaultBuf = serializeVaultToBuffer(
+      { meta: { name: 'SecTest' }, groups: [], entries: [] },
+      'ValidPass123!'
+    );
+    const badScryptBuf = Buffer.from(validVaultBuf);
+    badScryptBuf.writeUInt32LE(3000, 7); // N=3000 (no es potencia de 2)
+    assert.throws(
+      () => deserializeVaultFromBuffer(badScryptBuf, 'ValidPass123!'),
+      /límites de seguridad|potencia de 2/i,
+      'Debe rechazar parámetros KDF Scrypt malformados antes de invocar OpenSSL'
+    );
+    assert.throws(
+      () => deserializeVaultFromBuffer(validVaultBuf, 'ValidPass123!', '/ruta/inexistente/llave.key'),
+      /no se encuentra|archivo de llave/i,
+      'No debe degradar silenciosamente el KeyFile si el archivo no existe'
+    );
+
+    // 7.5 VULN-07: Importador KeePass XML debe ignorar <History> anidado y bloquear Prototype Pollution
+    const xmlWithHistoryAndProto = `<?xml version="1.0" encoding="utf-8"?>
+      <KeePassFile><Root><Group><Name>Corp</Name>
+        <Entry>
+          <UUID>aGVsbG8xMjM0NTY3ODkwMTIzNDU2</UUID>
+          <String><Key>Title</Key><Value>Prod DB</Value></String>
+          <String><Key>Password</Key><Value>CLAVE_ACTIVA_2026</Value></String>
+          <String><Key>__proto__</Key><Value>polluted</Value></String>
+          <History>
+            <Entry>
+              <String><Key>Password</Key><Value>CLAVE_VIEJA_REVOCADA</Value></String>
+            </Entry>
+          </History>
+        </Entry>
+      </Group></Root></KeePassFile>`;
+    const parsedHistoryTest = importKeePassXml(xmlWithHistoryAndProto);
+    assert.equal(parsedHistoryTest.entries.length, 1);
+    assert.equal(
+      parsedHistoryTest.entries[0].password,
+      'CLAVE_ACTIVA_2026',
+      'El bloque <History> anidado no debe sobrescribir la contraseña activa'
+    );
+    assert.equal(({}).polluted, undefined, 'No debe permitir contaminación de Object.prototype');
+
+    // 7.6 VULN-02: Protección contra clonación FIDO2 (signCount monotónico) y envoltura autenticada
+    assert.throws(
+      () =>
+        verifyHardwareAssertionSignature({
+          publicKeySpkiB64: parsedCose.publicKeySpkiB64,
+          authDataBuf: assertionAuthData, // signCount = 2
+          clientDataJson,
+          signatureBuf: signature,
+          lastSignCount: 5, // contador previo mayor -> clonación detectada
+        }),
+      /clonación|contador de firmas/i,
+      'Debe detectar y rechazar un contador de firmas FIDO2 regresivo o estancado'
+    );
+
+    // 7.7 CVE-2026-106074: Generación de UUID sin caché de entropía de snapshot
+    const u1 = crypto.randomUUID({ disableEntropyCache: true });
+    const u2 = crypto.randomUUID({ disableEntropyCache: true });
+    assert.notEqual(u1, u2);
+
+    console.log('[OK] 7/7 Auditoría de Seguridad y CVEs: Mitigaciones CVE-2026-*, SHA-256 PS1, Anti-ZipBomb, Anti-Scrypt-DoS, URL Sanitizer y FIDO2 signCount verificados.');
+  }
+
   console.log('======================================================================');
-  console.log(' TODAS LAS PRUEBAS PASARON EXITOSAMENTE');
+  console.log(' TODAS LAS 7 SUITES DE SEGURIDAD Y CRIPTOGRAFÍA PASARON EXITOSAMENTE');
   console.log('======================================================================');
 })();

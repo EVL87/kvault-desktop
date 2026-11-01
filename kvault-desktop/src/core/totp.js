@@ -128,17 +128,25 @@ function generateSecurePassword(options = {}) {
   const digits = '23456789';
   const symbols = '!@#$%^&*()-_=+[]{}|;:,.<>?';
 
-  let alphabet = lower + upper + digits;
+  let alphabet = '';
+  if (options.lower !== false) alphabet += lower;
+  if (options.upper !== false) alphabet += upper;
+  if (options.digits !== false) alphabet += digits;
   if (options.symbols !== false) alphabet += symbols;
+  if (!alphabet) alphabet = lower + upper + digits;
 
   const chars = [];
   const maxValidByte = 256 - (256 % alphabet.length);
   while (chars.length < length) {
     const rand = crypto.randomBytes(length * 2);
-    for (let i = 0; i < rand.length && chars.length < length; i++) {
-      if (rand[i] < maxValidByte) {
-        chars.push(alphabet[rand[i] % alphabet.length]);
+    try {
+      for (let i = 0; i < rand.length && chars.length < length; i++) {
+        if (rand[i] < maxValidByte) {
+          chars.push(alphabet[rand[i] % alphabet.length]);
+        }
       }
+    } finally {
+      rand.fill(0);
     }
   }
   return chars.join('');
